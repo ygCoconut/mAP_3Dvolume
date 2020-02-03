@@ -9,11 +9,85 @@ from pycocotools.ytvoseval import YTVOSeval
 
 import pycocotools.mask as mask
 import json
+import h5py
 
+import os, sys
+import argparse
 
 # # How to convert video instance segmentation results into COCO format
 
 # # Main Code
+
+def get_bb3d(seg,do_count=False, uid=None):
+    sz = seg.shape
+    assert len(sz)==3
+    if uid is None:
+        uid = np.unique(seg)
+        uid = uid[uid>0]
+    um = int(uid.max())
+    out = np.zeros((1+um,7+do_count),dtype=np.uint32)
+    out[:,0] = np.arange(out.shape[0])
+    out[:,1] = sz[0]
+    out[:,3] = sz[1]
+    out[:,5] = sz[2]
+
+    # for each slice
+    zids = np.where((seg>0).sum(axis=1).sum(axis=1)>0)[0]
+    for zid in zids:
+        sid = np.unique(seg[zid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,1] = np.minimum(out[sid,1],zid)
+        out[sid,2] = np.maximum(out[sid,2],zid)
+
+    # for each row
+    rids = np.where((seg>0).sum(axis=0).sum(axis=1)>0)[0]
+    for rid in rids:
+        sid = np.unique(seg[:,rid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,3] = np.minimum(out[sid,3],rid)
+        out[sid,4] = np.maximum(out[sid,4],rid)
+    
+    # for each col
+    cids = np.where((seg>0).sum(axis=0).sum(axis=0)>0)[0]
+    for cid in cids:
+        sid = np.unique(seg[:,:,cid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,5] = np.minimum(out[sid,5],cid)
+        out[sid,6] = np.maximum(out[sid,6],cid)
+
+    if do_count:
+        ui,uc = np.unique(seg,return_counts=True)
+        out[ui[ui<=um],-1]=uc[ui<=um]
+
+    return out[uid]
+
+def seg_iou3d(seg1, seg2, return_extra=False):
+    # (gt,pred)
+    # return: id_1,id_2,size_1,size_2,iou
+    ui,uc = np.unique(seg1,return_counts=True)
+    uc=uc[ui>0];ui=ui[ui>0]
+    ui2,uc2 = np.unique(seg2,return_counts=True)
+    uc2=uc2[ui2>0];ui2=ui2[ui2>0]
+
+    out = np.zeros((len(ui),5),float)
+    bbs = get_bb3d(seg1,uid=ui)[:,1:]
+    out[:,0] = ui
+    out[:,2] = uc
+
+    for j,i in enumerate(ui):
+        bb= bbs[j]
+        ui3,uc3=np.unique(seg2[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(seg1[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
+        uc3[ui3==0]=0
+        # take the largest one
+        out[j,1] = ui3[np.argmax(uc3)] # matched seg id (max)
+        if out[j,1]>0:
+            out[j,3] = uc2[ui2==out[j,1]] # matched seg size
+            out[j,4] = float(uc3.max())/(out[j,2]+out[j,3]-uc3.max()) # iou
+    if return_extra: # for FP
+        return out,ui2,uc2
+    else:
+        return out
+
 
 def loadh5py(path, vol="main"):
     return np.array(h5py.File(path, 'r')[vol]).squeeze()
@@ -134,10 +208,6 @@ def convert2coco(seg_data, aff_pred):
     print('\t-Finished')
 
 
-# Test the function above
-# from T_eval_zudi import seg_iou3d, loadh5py, get_bb3d
-# from evaluation_postprocessing import *
-# from src import *
 
 # p="/n/home00/nwendt/pytorch_connectomics/scripts/outputs/unetv3_mito_retrain/result_train/augmentation_4fold_mean/"
 # f="2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256.h5" #old file without erosion
@@ -210,7 +280,6 @@ valid_dict =convert_to_validation(info, licences, videos, categories)
 
 coco_val_list = valid_dict
 
-#     import pdb; pdb.set_trace()
 print('\n\t-\tDump COCO object to json ..')
 filename = 'COCO_Lucchi_train_valid.json'
 with open(filename, 'w') as json_file:

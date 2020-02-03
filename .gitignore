@@ -1,3 +1,9 @@
+# make sure not to upload the json files that contain the COCO segmentation format
+*.json
+
+# do not upload the COCO git repo
+cocoapi/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

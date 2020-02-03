@@ -1,0 +1,5 @@
+python==2.7.17
+cython
+numpy
+h5py
+matplotlib
