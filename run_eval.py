@@ -14,11 +14,31 @@ import h5py
 import os, sys
 import argparse
 
+# Arguments
+
+parser = argparse.ArgumentParser(description='Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
+
+parser.add_argument('-p','--prediction_path', type=str, default='~/my_ndarray.h5')
+parser.add_argument('-gt','--ground_truth_path', type=str, default='~/my_ndarray.h5')
+parser.add_argument('-aff','--affinity_path', type=str, default='~/my_ndarray.h5')
+
+parser.add_argument('-eval','--evaluate_map_score', type=bool, default=True)
+
+args = parser.parse_args()
+
+# JSON file creation arguments
+prediction = args.p
+ground_truth= args.gt
+affinity = args.aff
+
+evaluate = args.evaluate_map_score
+
+
 # # How to convert video instance segmentation results into COCO format
 
-# # Main Code
-
 def get_bb3d(seg,do_count=False, uid=None):
+    """returns bounding box of segments for higher processing speed
+    Used for seg_iou3d. Written by Donglai Wei"""
     sz = seg.shape
     assert len(sz)==3
     if uid is None:
@@ -62,6 +82,7 @@ def get_bb3d(seg,do_count=False, uid=None):
     return out[uid]
 
 def seg_iou3d(seg1, seg2, return_extra=False):
+    """returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair"""
     # (gt,pred)
     # return: id_1,id_2,size_1,size_2,iou
     ui,uc = np.unique(seg1,return_counts=True)
@@ -208,25 +229,30 @@ def convert2coco(seg_data, aff_pred):
     print('\t-Finished')
 
 
+    
+## Create predict.json and gt.json by using functions above
 
-# p="/n/home00/nwendt/pytorch_connectomics/scripts/outputs/unetv3_mito_retrain/result_train/augmentation_4fold_mean/"
-# f="2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256.h5" #old file without erosion
-p="/n/home00/nwendt/IoUanalysis_tools/MitoDataanalysis/"
-f="Lucchi_train_multi_augmean_zfilt1_erode5_binary_label_2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256.h5"
-pred = loadh5py(p + f)
+pred = loadh5py(prediction)
+gt = loadh5py(ground_truth)
+aff=loadh5py(affinity, vol='vol0')
+convert2coco((ground_truth, prediction), affinity)
 
-gt_path='/n/pfister_lab2/Lab/vcg_connectomics/mitochondria/Lucchi/label/train_label_ins_v2.h5'
-gt = loadh5py(gt_path)
 
-aff_path='/n/home00/nwendt/pytorch_connectomics/scripts/outputs/unetv3_mito_retrain/result_train/augmentation_4fold_mean/result.h5'
-aff=loadh5py(aff_path, vol='vol0')
+# p="/n/home00/nwendt/IoUanalysis_tools/MitoDataanalysis/"
+# f="Lucchi_train_multi_augmean_zfilt1_erode5_binary_label_2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256.h5"
+# pred = loadh5py(prediction)
 
-convert2coco((gt, pred), aff)
+# gt_path='/n/pfister_lab2/Lab/vcg_connectomics/mitochondria/Lucchi/label/train_label_ins_v2.h5'
+# gt = loadh5py(gt_path)
+
+# aff_path='/n/home00/nwendt/pytorch_connectomics/scripts/outputs/unetv3_mito_retrain/result_train/augmentation_4fold_mean/result.h5'
+# aff=loadh5py(aff_path, vol='vol0')
+
+# convert2coco((gt, pred), aff)
+
 
 
 # # Create Validation file
-
-
 def convert_to_validation(info, licence, videos, categories):
     res_dict = dict()
     res_dict['info'] = info
@@ -237,90 +263,77 @@ def convert_to_validation(info, licence, videos, categories):
     return res_dict
 
 
-# You can manually enter and complete the data here 
-info = {}
-info['description']="Lucchi Dataset train stack"
-info['url']="n.a"
-info['version']="n.a"
-info['year']=9999
-info['contributor']="n.a"
-info['date_created']="n.a"
+def validation_data_to_json():
+    # You can manually enter and complete the data here 
+    info = {}
+    info['description']="Lucchi Dataset train stack"
+    info['url']="n.a"
+    info['version']="n.a"
+    info['year']=9999
+    info['contributor']="n.a"
+    info['date_created']="n.a"
 
-licences = []
-licence = {}
-licence['url']="n.a"
-licence['id']=1
-licence['name']="n.a"
-licences.append(licence)
+    licences = []
+    licence = {}
+    licence['url']="n.a"
+    licence['id']=1
+    licence['name']="n.a"
+    licences.append(licence)
 
-videos = []
-video = {}
-video['height']=768
-video['width']=1024 
-video['length']=165
-video['date_captured']="n.a" 
-video['flickr_url']=""
-video['file_names']=[]
-video['id']=0
-video['coco_url']=""
-videos.append(video)
-
-
-categories = []
-category = {}
-category['supercategory']="cell"
-category['id']=1
-category['name']="mitochondria"
-categories.append(category)
+    videos = []
+    video = {}
+    video['height']=768
+    video['width']=1024 
+    video['length']=165
+    video['date_captured']="n.a" 
+    video['flickr_url']=""
+    video['file_names']=[]
+    video['id']=0
+    video['coco_url']=""
+    videos.append(video)
 
 
-# Format conversion
-print('\t-\tConvert Format ..')
-valid_dict =convert_to_validation(info, licences, videos, categories)
-
-coco_val_list = valid_dict
-
-print('\n\t-\tDump COCO object to json ..')
-filename = 'COCO_Lucchi_train_valid.json'
-with open(filename, 'w') as json_file:
-    json.dump(coco_val_list, json_file)
-print('\t-\tCOCO object to written to {}.'.format(filename))
-print('\t-Finished')
+    categories = []
+    category = {}
+    category['supercategory']="cell"
+    category['id']=1
+    category['name']="mitochondria"
+    categories.append(category)
 
 
-# # Other
-def load_inference_meta(T_analysis_file):
-    gt_ids = []
-    pred_scores = []
-    with open(T_analysis_file, 'r') as file:
-        for rows in file:
-            els = rows.split(",")
-            gt_ids.append(int(els[0]))
-            pred_scores.append(float(els[2]))
-    return gt_ids, pred_scores
+    # Format conversion
+    print('\t-\tConvert Format ..')
+    valid_dict =convert_to_validation(info, licences, videos, categories)
 
-if False: # outcomment
-    file = 'gt_analysis_Lucchi_train_multi_augmean_zfilt1_erode5_binary_label_2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256'
-    ids, pred = load_inference_meta(file)
-    print(ids, pred)
+    coco_val_list = valid_dict
+
+    print('\n\t-\tDump COCO object to json ..')
+    filename = 'COCO_segmentation_traindata_prediction.json'
+    with open(filename, 'w') as json_file:
+        json.dump(coco_val_list, json_file)
+    print('\t-\tCOCO object to written to {}.'.format(filename))
+    print('\t-Finished')
+
+# Execute function above:
+validation_data_to_json()
 
 
 # # Install cocoapi for video instance segmentation
 # https://github.com/youtubevos/cocoapi.git
 
+if evaluate == True:
+    # # Evaluation script for video instance segmentation
 
-# # Evaluation script for video instance segmentation
+    gt_path = 'COCO_Lucchi_train_valid.json'
+    # Define evaluator
+    ytvosGt = YTVOS(gt_path)
+    # Load segmentation result in COCO format
+    det_path = 'COCO_Lucchi_train_result.json'
+    ytvosDt = ytvosGt.loadRes(det_path)
 
-gt_path = 'COCO_Lucchi_train_valid.json'
-# Define evaluator
-ytvosGt = YTVOS(gt_path)
-# Load segmentation result in COCO format
-det_path = 'COCO_Lucchi_train_result.json'
-ytvosDt = ytvosGt.loadRes(det_path)
-
-ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
-ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
-ytvosEval.evaluate()
-ytvosEval.accumulate()
-ytvosEval.summarize()
+    ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+    ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
+    ytvosEval.evaluate()
+    ytvosEval.accumulate()
+    ytvosEval.summarize()
 
