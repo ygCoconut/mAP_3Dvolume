@@ -146,6 +146,7 @@ def convert_format_pred(input_videoId, pred_score, pred_catId, pred_segm):
         # make z-slices without the specific instance None
         if np.sum(pred_segm[i]) == 0:
             res_dict['segmentations'][i] = None
+            
     return res_dict    
 
 
@@ -208,6 +209,7 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
     print('\t-\tConvert instances to COCO format ..')
 
     gt_dict = get_meta()
+    pred_dict = get_meta()
     for i in range(num_instances):
         print('\t-- Instance {} out of {}'.format(i+1, num_instances))
 
@@ -225,16 +227,17 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
         print('\t-\tConvert Format ..')
         res_dict = convert_format_pred(input_videoId, mean_aff_score, pred_catId, pred_segm)
         coco_list.append(res_dict)
+#         pred_dict = convert_format_gt(pred_dict, pred_segm)
         
         if convert_gt == True:
-#             gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
-            gt_dict = convert_format_pred(input_videoId, 1.0, pred_catId, np.array((mask_gt), dtype=np.uint8))
-            gt_list.append(gt_dict)
+            gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
+#             gt_dict = convert_format_pred(input_videoId, 1.0, pred_catId, np.array((mask_gt), dtype=np.uint8))
+#             gt_list.append(gt_dict)
         
 
     print('\n\t-\tDump COCO object to json ..')
     writejson(coco_list, filename = 'COCO_segmentation_traindata_result.json')
-    writejson(gt_list, filename = 'COCO_segmentation_traindata_gt.json')
+    writejson(gt_dict, filename = 'COCO_segmentation_traindata_gt.json')
     print('\t-Finished\n\n')
 
     
@@ -257,13 +260,16 @@ def convert_format_gt(res_dict, gt):
             encoded[i] = None
             
     annotation_dict['segmentations'] = encoded
-    res_dict['annotations']['height'] = 720,
-    res_dict['annotations']['width'] = 1280,
-    res_dict['annotations']['length'] = 1,
-    res_dict['annotations']['category_id'] = 1
-    res_dict['annotations']['video_id'] = 0
+    annotation_dict['height'] = 720,
+    annotation_dict['width'] = 1280,
+    annotation_dict['length'] = 1,
+    annotation_dict['category_id'] = 1
+    annotation_dict['id'] = 1
+    annotation_dict['video_id'] = 0
+#     annotation_dict['id'] = 0
     
-    return res_dict['annotations'].append(annotation_dict)
+    res_dict['annotations'].append(annotation_dict)
+    return res_dict
 #     res_dict['annotations']['segmentations'] = encoded
 #     res_dict['annotations']['height'] = 720,
 #     res_dict['annotations']['width'] = 1280,
@@ -305,6 +311,7 @@ def get_meta():
     videos.append(video)
 
 
+#     needs to be done right in order to be useful
     categories = []
     category = {}
     category['supercategory']="cell"
@@ -316,7 +323,7 @@ def get_meta():
     res_dict['info'] = info
     res_dict['licences'] = licence
     res_dict['videos'] = videos
-    res_dict['categories'] = [categories]
+    res_dict['categories'] = categories
     
     res_dict['annotations'] = []
 #     res_dict['annotations']['segmentations'] = [[]]
