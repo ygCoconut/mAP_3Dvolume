@@ -108,7 +108,7 @@ def seg_iou3d(seg1, seg2, return_extra=False):
     if return_extra: # for FP
         return out,ui2,uc2
     else:
-        return out
+        return out, bbs
 
 
 def loadh5py(path, vol="main"):
@@ -123,12 +123,14 @@ def obtain_id_map(gt, pred):
 
 # create complete mapping of ids for gt and pred:
     # 1. get ids that are not false positives, i.e. gt IDs that have a matching pred pair
-    gtids_map = seg_iou3d(gt, pred)[:,:2]
+#     gtids_map, bbox = seg_iou3d(gt, pred)[:,:2] replaced with 2 following lines
+    gtids_map, bbox = seg_iou3d(gt, pred)
+    gtids_map = gtids_map[:,:2]
     # 2. get remaining ids, i.e. pred FPs that match with gt background (bg has ID=0)
     for new_pred_id in ui2:
         if np.isin(new_pred_id, gtids_map[:,1].flatten()) == False:
             gtids_map = np.append(np.array(gtids_map), np.array([[0, new_pred_id]]), axis=0)
-    return gtids_map
+    return gtids_map, bbox
 
 
 def convert_format_pred(input_videoId, pred_score, pred_catId, pred_segm):
@@ -196,8 +198,8 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
     input_videoId = 0 # index of video
     
 # create complete mapping of ids for gt and pred:
-    print('\t-\tObtain ID map ..')
-    id_map = obtain_id_map(gt, pred)
+    print('\t-\tObtain ID map and bounding box ..')
+    id_map, bbox = obtain_id_map(gt, pred)
     num_instances = id_map.shape[0]
 
 #     id_map = scrrtest ##########################TESTING PARAM
@@ -230,7 +232,10 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
 #         pred_dict = convert_format_gt(pred_dict, pred_segm)
         
         if convert_gt == True:
-            gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
+            gt_dict = convert_format_gt(gt_dict, 
+                        np.array((mask_gt), dtype=np.uint8),
+                        i,
+                        bbox=np.array(bbox[i], dtype=np.uint8) ) #bbox not needed !
 #             gt_dict = convert_format_pred(input_videoId, 1.0, pred_catId, np.array((mask_gt), dtype=np.uint8))
 #             gt_list.append(gt_dict)
         
@@ -248,11 +253,13 @@ def writejson(coco_list, filename):
 
 
 # # Create Validation file
-def convert_format_gt(res_dict, gt):
+def convert_format_gt(res_dict, gt, curr_instance_idx, bbox=None):
     annotation_dict = {}
+    areas = list()
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
     encoded = mask.encode(np.asfortranarray(np.moveaxis(gt, 0, -1)))
     for i in range(len(encoded)):
+        areas.append(int(np.sum(gt[i].flatten())))
         # python2 and python3 bug with bytes and strings to be avoided for "counts"
         encoded[i]['counts'] = encoded[i]['counts'].decode('ascii')
         # make z-slices without the specific instance None
@@ -260,24 +267,20 @@ def convert_format_gt(res_dict, gt):
             encoded[i] = None
             
     annotation_dict['segmentations'] = encoded
-    annotation_dict['height'] = 720,
-    annotation_dict['width'] = 1280,
+    annotation_dict['height'] = 768,
+    annotation_dict['width'] = 1024,
     annotation_dict['length'] = 1,
     annotation_dict['category_id'] = 1
-    annotation_dict['id'] = 1
+    annotation_dict['id'] = curr_instance_idx
     annotation_dict['video_id'] = 0
+    annotation_dict['areas'] = areas
+    annotation_dict['iscrowd'] = 0
+#     annotation_dict['bbox'] = [bbox[2], bbox[4], bbox[0], bbox[3]-bbox[2], bbox[5]-bbox[4], bbox[1]-bbox[0]]
 #     annotation_dict['id'] = 0
-    
+
     res_dict['annotations'].append(annotation_dict)
     return res_dict
-#     res_dict['annotations']['segmentations'] = encoded
-#     res_dict['annotations']['height'] = 720,
-#     res_dict['annotations']['width'] = 1280,
-#     res_dict['annotations']['length'] = 1,
-#     res_dict['annotations']['category_id'] = 1
-#     res_dict['annotations']['video_id'] = 0
-    
-#     return res_dict
+
 
 def get_meta():
     # You can manually enter and complete the data here
@@ -326,7 +329,6 @@ def get_meta():
     res_dict['categories'] = categories
     
     res_dict['annotations'] = []
-#     res_dict['annotations']['segmentations'] = [[]]
     
     return res_dict 
 
