@@ -190,6 +190,7 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
     print('\t-Started')    
     (gt, pred) = seg_data
     coco_list = []
+    gt_list = []
     num_frames = pred.shape[0]; im_h = pred.shape[1]; im_w = pred.shape[2]
     input_videoId = 0 # index of video
     
@@ -226,12 +227,14 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
         coco_list.append(res_dict)
         
         if convert_gt == True:
-            gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
+#             gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
+            gt_dict = convert_format_pred(input_videoId, 1.0, pred_catId, np.array((mask_gt), dtype=np.uint8))
+            gt_list.append(gt_dict)
         
 
     print('\n\t-\tDump COCO object to json ..')
     writejson(coco_list, filename = 'COCO_segmentation_traindata_result.json')
-    writejson(gt_dict, filename = 'COCO_segmentation_traindata_gt.json')
+    writejson(gt_list, filename = 'COCO_segmentation_traindata_gt.json')
     print('\t-Finished\n\n')
 
     
@@ -243,7 +246,7 @@ def writejson(coco_list, filename):
 
 # # Create Validation file
 def convert_format_gt(res_dict, gt):
-
+    annotation_dict = {}
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
     encoded = mask.encode(np.asfortranarray(np.moveaxis(gt, 0, -1)))
     for i in range(len(encoded)):
@@ -253,14 +256,14 @@ def convert_format_gt(res_dict, gt):
         if np.sum(gt[i]) == 0:
             encoded[i] = None
             
-    encoded['segmentations'] = encoded
+    annotation_dict['segmentations'] = encoded
     res_dict['annotations']['height'] = 720,
     res_dict['annotations']['width'] = 1280,
     res_dict['annotations']['length'] = 1,
     res_dict['annotations']['category_id'] = 1
     res_dict['annotations']['video_id'] = 0
     
-    return res_dict['annotations'].append()
+    return res_dict['annotations'].append(annotation_dict)
 #     res_dict['annotations']['segmentations'] = encoded
 #     res_dict['annotations']['height'] = 720,
 #     res_dict['annotations']['width'] = 1280,
