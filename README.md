@@ -5,6 +5,11 @@ This repo contains a tool to evaluate the mean average precision score (mAP) of 
 
 Our tool relates on this fork of the COCO API: https://github.com/youtubevos/cocoapi
 
+## Important notes:
+- The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.
+- The tool assumes that the z-axis is the first axis, then x then y (i.e. gt.shape = (z, x, y), where z represents the slices of your stack). This should not matter in terms of map score though if you load a 3D array.
+- In our model output, each voxel has 3 score/affinity values. For this reason, the average instance score is calculated in a way that might not be compatible with your model output. Feel free to adapt the score function.
+
 ## Requirements:
 - You can use one of the following two commands to install the required packages:
 ```
@@ -29,6 +34,11 @@ https://github.com/cocodataset/cocoapi/issues/70
 
 
 ## How it works:
+Run the following command to use the tool:
+```
+python run_eval.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -aff "path/to/model_output.h5"
+```
+The following steps will be executed by the script:
 1) Load the following 3D arrays:
 - GT segmentation volume
 - prediction segmentation volume
