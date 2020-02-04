@@ -176,6 +176,7 @@ def obtain_masks(gt, pred, gtids_map, only_pred=True):
             mask_gt.append(mask2)
         
     return np.array(mask_gt).squeeze(), np.array(mask_pred).squeeze(), gtids_map
+    
 
 def convert2coco(seg_data, aff_pred, convert_gt=True):
     """ 
@@ -188,8 +189,7 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
     """
     print('\t-Started')    
     (gt, pred) = seg_data
-    coco_list_gt = []
-    coco_list_pred = []
+    coco_list = []
     num_frames = pred.shape[0]; im_h = pred.shape[1]; im_w = pred.shape[2]
     input_videoId = 0 # index of video
     
@@ -199,123 +199,81 @@ def convert2coco(seg_data, aff_pred, convert_gt=True):
     num_instances = id_map.shape[0]
 
 #     id_map = scrrtest ##########################TESTING PARAM
-#     num_instances = 2 ######################################### TESTING PARAM: #############################
+    num_instances = 4 ######################################### TESTING PARAM: #############################
     
     ui1,uc1 = np.unique(gt,return_counts=True) #very expensive, not necessary
     print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format(ui1.size, num_instances))
     
     print('\t-\tConvert instances to COCO format ..')
-    if convert_gt == True:
 
-        for i in range(num_instances):
-            print('\t-- Instance {} out of {}'.format(i+1, num_instances))
+    gt_dict = get_meta()
+    for i in range(num_instances):
+        print('\t-- Instance {} out of {}'.format(i+1, num_instances))
 
-            print('\t-\tObtain mask of each ID ..')
-            mask_gt, mask_pred, ids_map = obtain_masks(gt, pred, id_map[i], only_pred=False)
+        print('\t-\tObtain mask of each ID ..')
+        mask_gt, mask_pred, ids_map = obtain_masks(gt, pred, id_map[i], only_pred=False)
 
-            print('\t-\tObtain mean affinity ..')
-            mean_aff_score_pred = affinity_score(aff_pred, mask_pred) # confidence of this instance
-            mean_aff_score_gt = np.array(mask_gt, type = np.float) 
+        print('\t-\tObtain mean affinity ..')
+        mean_aff_score = affinity_score(aff_pred, mask_pred) # confidence of this instance
 
-            pred_catId = 1 if id_map[i,1] != 0 else 0 # category of instance
-            gt_catId = 1 if id_map[i,0] != 0 else 0 # category of instance
+        pred_catId = 1 if id_map[i,1] != 0 else 0 # category of instance
 
-            pred_segm = np.array((mask_pred), dtype=np.uint8)#, order='f') # segmentation mask across frames, fortr. uint8 req.
-            gt_segm = np.array((mask_gt), dtype=np.uint8)#, order='f') # segmentation mask across frames, fortr. uint8 req.
+        pred_segm = np.array((mask_pred), dtype=np.uint8)#, order='f') # segmentation mask across frames, fortr. uint8 req.
+        
+        # Format conversion
+        print('\t-\tConvert Format ..')
+        res_dict = convert_format_pred(input_videoId, mean_aff_score, pred_catId, pred_segm)
+        coco_list.append(res_dict)
+        
+        if convert_gt == True:
+            gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8))
+        
 
-            # Format conversion
-            print('\t-\tConvert Format ..')
-            pred_res_dict = convert_format_pred(input_videoId, mean_aff_score_pred, pred_catId, pred_segm)
-            gt_res_dict = convert_format_gt(input_videoId, mean_aff_score_gt, gt_catId, gt_segm)
+    print('\n\t-\tDump COCO object to json ..')
+    writejson(coco_list, filename = 'COCO_segmentation_traindata_result.json')
+    writejson(gt_dict, filename = 'COCO_segmentation_traindata_gt.json')
+    print('\t-Finished\n\n')
 
-            coco_list_pred.append(pred_res_dict)
-            coco_list_gt.append(gt_res_dict)
-
-        print('\n\t-\tDump COCO object to json ..')
-        filename = 'COCO_Lucchi_train_pred.json'
-        with open(filename, 'w') as json_file:
-            json.dump(coco_list_pred, json_file)
-        print('\t-\tCOCO object to written to {}.'.format(filename))
-            
-        filename = 'COCO_Lucchi_train_gt.json'
-        with open(filename, 'w') as json_file:
-            json.dump(coco_list_gt, json_file)
-        print('\t-\tCOCO object to written to {}.'.format(filename))
-        print('\t-Finished')
     
-    else:
-        for i in range(num_instances):
-            print('\t-- Instance {} out of {}'.format(i+1, num_instances))
-
-            print('\t-\tObtain mask of each ID ..')
-            _, mask_pred, ids_map = obtain_masks(gt, pred, id_map[i])
-
-            print('\t-\tObtain mean affinity ..')
-            mean_aff_score_pred = affinity_score(aff_pred, mask_pred) # confidence of this instance
-
-            pred_catId = 1 if id_map[i,1] != 0 else 0 # category of instance
-
-            pred_segm = np.array((mask_pred), dtype=np.uint8)#, order='f') # segmentation mask across frames, fortr. uint8 req.
-
-            # Format conversion
-            print('\t-\tConvert Format ..')
-            res_dict = convert_format_pred(input_videoId, mean_aff_score, pred_catId, pred_segm)
-            coco_list.append(res_dict)
-
-        print('\n\t-\tDump COCO object to json ..')
-        filename = 'COCO_Lucchi_train_result.json'
-        with open(filename, 'w') as json_file:
-            json.dump(coco_list, json_file)
-        print('\t-\tCOCO object to written to {}.'.format(filename))
-        print('\t-Finished')
-
-## Create predict.json and gt.json by using functions above
-
-pred = loadh5py(prediction)
-gt = loadh5py(ground_truth)
-aff=loadh5py(affinity, vol='vol0')
-convert2coco((gt, pred), aff)
-
-
-# p="/n/home00/nwendt/IoUanalysis_tools/MitoDataanalysis/"
-# f="Lucchi_train_multi_augmean_zfilt1_erode5_binary_label_2_0.060000_0.480000_150_0.200000_150_0.900000_0_0.500000_aff60_his256.h5"
-# pred = loadh5py(prediction)
-
-# gt_path='/n/pfister_lab2/Lab/vcg_connectomics/mitochondria/Lucchi/label/train_label_ins_v2.h5'
-# gt = loadh5py(gt_path)
-
-# aff_path='/n/home00/nwendt/pytorch_connectomics/scripts/outputs/unetv3_mito_retrain/result_train/augmentation_4fold_mean/result.h5'
-# aff=loadh5py(aff_path, vol='vol0')
-
-# convert2coco((gt, pred), aff)
-
+def writejson(coco_list, filename):        
+    with open(filename, 'w') as json_file:
+        json.dump(coco_list, json_file)
+    print('\t-\tCOCO object to written to {}.'.format(filename))
 
 
 # # Create Validation file
-def convert_format_gt(info, licence, videos, categories, gt):
-    res_dict = dict()
-    res_dict['info'] = info
-    res_dict['licences'] = licence
-    res_dict['videos'] = videos
-    res_dict['categories'] = categories
-    
-    res_dict['annotations'] = []
-    res_dict['annotations']['segmentations'] = []
+def convert_format_gt(res_dict, gt):
+
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
-    res_dict['annotations']['segmentations'] = mask.encode(np.asfortranarray(np.moveaxis(gt, 0, -1)))
-    for i in range(len(res_dict['annotations']['segmentations'])):
+    encoded = mask.encode(np.asfortranarray(np.moveaxis(gt, 0, -1)))
+    for i in range(len(encoded)):
         # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        res_dict['annotations']['segmentations'][i]['counts'] = res_dict['annotations']['segmentations'][i]['counts'].decode('ascii')
+        encoded[i]['counts'] = encoded[i]['counts'].decode('ascii')
         # make z-slices without the specific instance None
         if np.sum(gt[i]) == 0:
-            res_dict['annotations']['segmentations'][i] = None
-    return res_dict    
+            encoded[i] = None
+            
+    encoded['segmentations'] = encoded
+    res_dict['annotations']['height'] = 720,
+    res_dict['annotations']['width'] = 1280,
+    res_dict['annotations']['length'] = 1,
+    res_dict['annotations']['category_id'] = 1
+    res_dict['annotations']['video_id'] = 0
+    
+    return res_dict['annotations'].append()
+#     res_dict['annotations']['segmentations'] = encoded
+#     res_dict['annotations']['height'] = 720,
+#     res_dict['annotations']['width'] = 1280,
+#     res_dict['annotations']['length'] = 1,
+#     res_dict['annotations']['category_id'] = 1
+#     res_dict['annotations']['video_id'] = 0
+    
+#     return res_dict
 
-    return res_dict
-
-
-def validation_data_to_json(gt):
-    # You can manually enter and complete the data here 
+def get_meta():
+    # You can manually enter and complete the data here
+    root_dict = dict()
+                                    
     info = {}
     info['description']="Lucchi Dataset train stack"
     info['url']="n.a"
@@ -350,23 +308,49 @@ def validation_data_to_json(gt):
     category['id']=1
     category['name']="mitochondria"
     categories.append(category)
+    
+    res_dict = dict()
+    res_dict['info'] = info
+    res_dict['licences'] = licence
+    res_dict['videos'] = videos
+    res_dict['categories'] = [categories]
+    
+    res_dict['annotations'] = []
+#     res_dict['annotations']['segmentations'] = [[]]
+    
+    return res_dict 
 
+## Create predict.json and gt.json by using functions above
 
-    # Format conversion
-    print('\t-\tConvert Format ..')
-    valid_dict =convert_to_validation(info, licences, videos, categories, gt)
+pred = loadh5py(prediction)
+gt = loadh5py(ground_truth)
+aff=loadh5py(affinity, vol='vol0')
+convert2coco((gt, pred), aff)
 
-    coco_val_list = valid_dict
+def debugjson():
+    annFile_foot = 'COCO_segmentation_traindata_gt.json' 
+    annFile_foot_modified = 'COCO_segmentation_traindata_gt_modified.json'
 
-    print('\n\t-\tDump COCO object to json ..')
-    filename = 'COCO_segmentation_traindata_prediction.json'
-    with open(filename, 'w') as json_file:
-        json.dump(coco_val_list, json_file)
-    print('\t-\tCOCO object to written to {}.'.format(filename))
-    print('\t-Finished')
+    with open(annFile_foot) as f:
+        data = json.loads(f.read())
+
+        #add additional brackets to categories
+        data['categories']=[data['categories']] 
+
+        #add additional brakets to annotations
+        for i in range(len(data['annotations'])):
+            if type(data['annotations'][i]['segmentation'][0])!=list:
+                data['annotations'][i]['segmentation'] = [data['annotations'][i]['segmentation']] #additional brackets
+
+        #export
+        with open(annFile_foot_modified, 'w+') as ff:
+            ff.write(json.dumps(data))
 
 # Execute function above:
-validation_data_to_json()
+# validation_data_to_json()
+
+# https://github.com/CMU-Perceptual-Computing-Lab/openpose/issues/1044
+# debugjson()
 
 
 # # Install cocoapi for video instance segmentation
@@ -375,11 +359,11 @@ validation_data_to_json()
 if evaluate == True:
     # # Evaluation script for video instance segmentation
 
-    gt_path = 'COCO_Lucchi_train_valid.json'
+    gt_path = 'COCO_segmentation_traindata_gt.json'
     # Define evaluator
     ytvosGt = YTVOS(gt_path)
     # Load segmentation result in COCO format
-    det_path = 'COCO_Lucchi_train_result.json'
+    det_path = 'COCO_segmentation_traindata_result.json'
     ytvosDt = ytvosGt.loadRes(det_path)
 
     ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
