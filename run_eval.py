@@ -119,7 +119,7 @@ def seg_iou3d(seg1, seg2, return_extra=False):
         return out
 
 def obtain_id_map(gt, pred):
-""" create complete mapping of ids for gt and pred pairs: """
+    """create complete mapping of ids for gt and pred pairs:"""
 #     ui1,uc1 = np.unique(gt,return_counts=True)
 #     uc1=uc1[ui1>0];ui1=ui1[ui1>0] #ids except background ( =0 )
     ui2,uc2 = np.unique(pred,return_counts=True)
@@ -164,22 +164,22 @@ def obtain_masks(gt, pred, gtids_map, only_pred=False):
         
     return np.array(mask_gt).squeeze(), np.array(mask_pred).squeeze(), gtids_map
  
-
 def convert_format_pred(input_videoId, pred_score, pred_catId, pred_segm):
     res_dict = dict()
     res_dict['video_id'] = input_videoId
     res_dict['score'] = pred_score
     res_dict['category_id'] = pred_catId
     res_dict['segmentations'] = []
-    res_dict['segmentations'] = mask.encode(np.asfortranarray(np.moveaxis(pred_segm, 0, -1)))
-    for i in range(len(res_dict['segmentations'])):
-        # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        res_dict['segmentations'][i]['counts'] = res_dict['segmentations'][i]['counts'].decode('ascii')
+    for sl in pred_segm:
         # make z-slices without the specific instance None
-        if np.sum(pred_segm[i]) == 0:
-            res_dict['segmentations'][i] = None
-    return res_dict    
-
+        if np.sum(sl) == 0:
+            res_dict['segmentations'].append(None)
+            continue
+        res_dict['segmentations'].append(mask.encode(np.asfortranarray(sl)))
+        # python2 and python3 bug with bytes and strings to be avoided for "counts"
+        res_dict['segmentations'][-1]['counts'] = res_dict['segmentations'][-1]['counts'].decode('ascii')
+        
+    return res_dict
 
 # # Create GT file
 def convert_format_gt(res_dict, gt, curr_instance_idx):
@@ -281,7 +281,7 @@ def main_convert2coco(seg_data, aff_pred, convert_gt=True):
     
 # create complete mapping of ids for gt and pred:
     print('\t-\tObtain ID map and bounding box ..')
-    id_map, _ = obtain_id_map(gt, pred) # 2nd param bounding box not needed
+    id_map = obtain_id_map(gt, pred) # 2nd param bounding box not needed
     num_instances = id_map.shape[0]
 
     ui1,uc1 = np.unique(gt,return_counts=True) #very expensive, not necessary
@@ -315,12 +315,16 @@ def main_convert2coco(seg_data, aff_pred, convert_gt=True):
     print('\t-Finished\n\n')
 
 
+    
 ## Create predict.json and gt.json by using functions above
 pred = loadh5py(prediction)
 gt = loadh5py(ground_truth)
 aff=loadh5py(affinity, vol='vol0')
 
+start_time = int(round(time.time() * 1000))
 main_convert2coco((gt, pred), aff)
+time_diff = current_milli_time()-start_time
+print("old f",time_diff)
 
 # # Evaluation script for video instance segmentation
 if evaluate == True:
@@ -337,3 +341,58 @@ if evaluate == True:
     ytvosEval.accumulate()
     ytvosEval.summarize()
 
+    
+    
+"""
+def convert_format_pred_old(input_videoId, pred_score, pred_catId, pred_segm):
+    res_dict = dict()
+    res_dict['video_id'] = input_videoId
+    res_dict['score'] = pred_score
+    res_dict['category_id'] = pred_catId
+    res_dict['segmentations'] = []
+    res_dict['segmentations'] = mask.encode(np.asfortranarray(np.moveaxis(pred_segm, 0, -1)))
+    for i in range(len(res_dict['segmentations'])):
+        # python2 and python3 bug with bytes and strings to be avoided for "counts"
+        res_dict['segmentations'][i]['counts'] = res_dict['segmentations'][i]['counts'].decode('ascii')
+        # make z-slices without the specific instance None
+        if np.sum(pred_segm[i]) == 0:
+            res_dict['segmentations'][i] = None
+    return res_dict
+
+
+
+def convert_format_pred_new(input_videoId, pred_score, pred_catId, pred_segm):
+    res_dict = dict()
+    res_dict['video_id'] = input_videoId
+    res_dict['score'] = pred_score
+    res_dict['category_id'] = pred_catId
+    res_dict['segmentations'] = []
+    for sl in pred_segm:
+        # make z-slices without the specific instance None
+        if np.sum(sl) == 0:
+            res_dict['segmentations'].append(None)
+            continue
+        res_dict['segmentations'].append(mask.encode(np.asfortranarray(sl)))
+        # python2 and python3 bug with bytes and strings to be avoided for "counts"
+        res_dict['segmentations'][-1]['counts'] = res_dict['segmentations'][-1]['counts'].decode('ascii')
+        
+    return res_dict
+
+import time
+current_milli_time = lambda: int(round(time.time() * 1000))
+
+current_milli_time()
+
+start_time = int(round(time.time() * 1000))
+convert_format_pred_old(input_videoId, mean_aff_score, pred_catId, pred_segm)
+time_diff = current_milli_time()-start_time
+print("old_f",time_diff)
+
+start_time = int(round(time.time() * 1000))
+convert_format_pred_new(input_videoId, mean_aff_score, pred_catId, pred_segm)
+time_diff = current_milli_time()-start_time
+print("new f",time_diff)
+
+res_dict_new
+
+"""
