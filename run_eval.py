@@ -116,26 +116,24 @@ def seg_iou3d(seg1, seg2, return_extra=False):
     if return_extra: # for FP
         return out,ui2,uc2
     else:
-        return out, bbs
+        return out
 
 def obtain_id_map(gt, pred):
-# create complete mapping of ids for gt and pred pairs:
-    ui1,uc1 = np.unique(gt,return_counts=True)
+""" create complete mapping of ids for gt and pred pairs: """
+#     ui1,uc1 = np.unique(gt,return_counts=True)
+#     uc1=uc1[ui1>0];ui1=ui1[ui1>0] #ids except background ( =0 )
     ui2,uc2 = np.unique(pred,return_counts=True)
-    uc1=uc1[ui1>0];ui1=ui1[ui1>0] #ids except background ( =0 )
-    uc2=uc2[ui2>0];ui2=ui2[ui2>0]
+    uc2=uc2[ui2>0];ui2=ui2[ui2>0] #ids except background ( =0 )
 
-# create complete mapping of ids for gt and pred:
-    # 1. get ids that are not false positives, i.e. gt IDs that have a matching pred pair
-#     gtids_map, bbox = seg_iou3d(gt, pred)[:,:2] replaced with 2 following lines
-    gtids_map, bbox = seg_iou3d(gt, pred)
-    gtids_map = gtids_map[:,:2]
-    # 2. get remaining ids, i.e. pred FPs that match with gt background (bg has ID=0)
-    for new_pred_id in ui2:
-        if np.isin(new_pred_id, gtids_map[:,1].flatten()) == False:
-            gtids_map = np.append(np.array(gtids_map), np.array([[0, new_pred_id]]), axis=0)
-    return gtids_map, bbox
-
+    # create complete mapping of ids for gt and pred:
+        # 1. get ids that are not false positives, i.e. gt IDs that have a matching pred pair
+    gtids_map = seg_iou3d(gt, pred)[:,:2]
+    mask_FP = np.isin(ui2, gtids_map[:,1].flatten(), assume_unique=True, invert=True)
+    false_positives = ui2[mask_FP]
+    #use hstack and vstack for speedup
+    fp_map = np.vstack((np.zeros(np.size(false_positives)), false_positives)).T
+    full_map = np.vstack((gtids_map, fp_map))
+    return full_map
 
 def affinity_score(affinity, mask0, only_z=False):
     if only_z == True:
@@ -152,6 +150,7 @@ def obtain_masks(gt, pred, gtids_map, only_pred=False):
     if len(np.array(gtids_map).shape) == 1:
         gtids_map = gtids_map.reshape([1,2])
         
+#    gtids_map has shape (1,2) in our case
     for i in range(np.shape(gtids_map)[0]):
         pred_id = np.int(gtids_map[i,1])
         mask1 = np.isin(pred.flatten(), pred_id).reshape(pred.shape)
@@ -183,7 +182,7 @@ def convert_format_pred(input_videoId, pred_score, pred_catId, pred_segm):
 
 
 # # Create GT file
-def convert_format_gt(res_dict, gt, curr_instance_idx, bbox=None):
+def convert_format_gt(res_dict, gt, curr_instance_idx):
     annotation_dict = {}
     areas = list()
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
@@ -205,7 +204,6 @@ def convert_format_gt(res_dict, gt, curr_instance_idx, bbox=None):
     annotation_dict['video_id'] = 0
     annotation_dict['areas'] = areas
     annotation_dict['iscrowd'] = 0
-#     annotation_dict['bbox'] = [bbox[2], bbox[4], bbox[0], bbox[3]-bbox[2], bbox[5]-bbox[4], bbox[1]-bbox[0]]
 
     res_dict['annotations'].append(annotation_dict)
     return res_dict
