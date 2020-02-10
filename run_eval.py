@@ -6,7 +6,6 @@
 https://github.com/youtubevos/cocoapi.git
 This script allows you to obtain .json files in coco format from the ground truth instance segmentation array and the resulting instance prediction. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True, which should be the case by default. 
 """
-import sys
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -17,6 +16,7 @@ import pycocotools.mask as mask
 import json
 import h5py
 
+import time
 import os, sys
 import argparse
 
@@ -49,6 +49,7 @@ def get_args():
         raise ValueError('at least one of "predict_heatmap" and "predict_score" should not be zero')
     return args
 
+
 def load_h5(path, vol=''):
     # do the first key
     fid = h5py.File(path, 'r')
@@ -59,21 +60,6 @@ def load_h5(path, vol=''):
             vol = fid.keys()[0] 
     return np.array(fid[vol]).squeeze()
 
-def heatmap_to_score(pred, heatmap, channel=-1):
-    if heatmap.ndim>pred.ndim:
-        if channel != -1:
-            heatmap = heatmap[channel]
-        else:
-            heatmap = heatmap.mean(axis=0)
-    pred_id = np.unique(pred)
-    pred_id = pred_id[pred_id>0]
-    pred_view = pred.ravel()
-    pred_len = pred_id.max()+1
-
-    counts = np.bincount(pred_view, minlength=pred_len)
-    sums = np.bincount(pred_view, weights=heatmap, minlength=pred_len)
-
-    return np.vstack([pred_id,sums/counts]).T
 
 def load_data(args):
     # load data arguments
@@ -87,6 +73,14 @@ def load_data(args):
         pred_score = heatmap_to_score(pred_seg, pred_score, args.predict_heatmap_channel)
 
     return gt_seg, pred_seg, pred_score
+
+
+def writejson(coco_list, filename):        
+    with open(filename, 'w') as json_file:
+        json.dump(coco_list, json_file)
+    print('\t-\tCOCO object to written to {}.'.format(filename))
+
+
 
 ###### 2. Seg IoU
 def get_bb3d(seg,do_count=False, uid=None):
@@ -163,6 +157,25 @@ def seg_iou3d(seg1, seg2, return_extra=False):
     else:
         return out
 
+
+###
+def heatmap_to_score(pred, heatmap, channel=-1):
+    if heatmap.ndim>pred.ndim:
+        if channel != -1:
+            heatmap = heatmap[channel]
+        else:
+            heatmap = heatmap.mean(axis=0)
+    pred_id = np.unique(pred)
+    pred_id = pred_id[pred_id>0]
+    pred_view = pred.ravel()
+    pred_len = pred_id.max()+1
+    
+    # relabel bincount(minlen = max_len) with ids
+    counts = np.bincount(pred_view, minlength=pred_len)
+    sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
+    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
+
+    
 def obtain_id_map(gt, pred):
     """create complete mapping of ids for gt and pred pairs:"""
     # 1. get matched pair of ids
@@ -170,7 +183,7 @@ def obtain_id_map(gt, pred):
     gtids_map = gtids_map[:,:2]
 
     # 2. get false positives
-    false_positives = ui2[np.in1d(ui2, gtids_map[:,1], invert=True)]
+    false_positives = ui2[np.isin(ui2, gtids_map[:,1], assume_unique=True, invert=True)]
 
     #use hstack and vstack for speedup
     full_map = np.vstack((gtids_map, np.zeros((len(false_positives),2),int)))
@@ -184,8 +197,8 @@ def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
     pred_dict['video_id'] = input_videoId
     pred_dict['score'] = pred_score
     pred_dict['category_id'] = pred_catId
-    pred_dict['segmentations'] = [None]*pred_seg.shape[0]
-    z_nonzero = np.max(np.max(gt,axis=1),axis=1)
+    pred_dict['segmentations'] = [None]*pred_seg.shape[0] #put all slices = None
+    z_nonzero = np.max(np.max(pred_seg,axis=1),axis=1)
     for zid in np.where(z_nonzero>0)[0]:
         pred_dict['segmentations'][zid] = mask.encode(np.asfortranarray(pred_seg[zid]))
         if is_python3():
@@ -199,10 +212,10 @@ def convert_format_gt(gt, gt_id):
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
     gt_dict['segmentations'] = [None]*gt.shape[0]
     areas = np.sum(np.sum(gt,axis=1),axis=1)
-    for zid in np.where(areas>0):
+    for zid in np.where(areas>0)[0]:
         gt_dict['segmentations'][zid] = mask.encode(np.asfortranarray(gt[zid]))
         if is_python3():
-            gt_dict['segmentations'][zid]['counts'] = pred_dict['segmentations'][zid]['counts'].decode('ascii')
+            gt_dict['segmentations'][zid]['counts'] = gt_dict['segmentations'][zid]['counts'].decode('ascii')
             
     gt_dict['height'] = gt.shape[1],
     gt_dict['width'] = gt.shape[2],
@@ -218,7 +231,6 @@ def convert_format_gt(gt, gt_id):
 #  get GT file meta data
 def get_meta(data_size):
     # You can manually enter and complete the data here
-    root_dict = dict()
                                     
     info = {}
     info['description']="Lucchi Dataset train stack"
@@ -254,21 +266,15 @@ def get_meta(data_size):
     category['name']="mitochondria"
     categories.append(category)
     
-    pred_dict = dict()
-    pred_dict['info'] = info
-    pred_dict['licences'] = licence
-    pred_dict['videos'] = videos
-    pred_dict['categories'] = categories
-    pred_dict['annotations'] = []
+    gt_dict = dict()
+    gt_dict['info'] = info
+    gt_dict['licences'] = licence
+    gt_dict['videos'] = videos
+    gt_dict['categories'] = categories
+    gt_dict['annotations'] = []
     
-    return pred_dict 
-    
-def writejson(coco_list, filename):        
-    with open(filename, 'w') as json_file:
-        json.dump(coco_list, json_file)
-    print('\t-\tCOCO object to written to {}.'.format(filename))
+    return gt_dict 
 
-    
     
 def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     """ 
@@ -280,15 +286,14 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
                                     the metadata about the dataset. 
     """
     print('\t-Started')    
-    coco_list = [] # JSON prediction file made with list
-    gt_dict = get_meta() # JSON GT file made with dict
-    num_frames = pred.shape[0]; im_h = pred.shape[1]; im_w = pred.shape[2]
     input_videoId = 0 # index of video
-    
     # create complete mapping of ids for gt and pred:
     print('\t-\tObtain ID map and bounding box ..')
-    id_map = obtain_id_map(gt, pred) # 2nd param bounding box not needed
+    id_map = obtain_id_map(gt_seg, pred_seg) # 2nd param bounding box not needed
     num_instances = id_map.shape[0]
+    num_instances = 3
+    coco_list = [None]*num_instances # JSON prediction file made with list
+    gt_dict = get_meta(pred_seg.shape) # JSON GT file made with dict
 
     print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format((id_map[:,0]>0).sum(), num_instances))
     
@@ -303,12 +308,13 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         # coco format for pred
         pred_catId = int(pred_id>0) # category of instance
         print('\t-\tConvert Format ..')
-        # TODO: what should the probability for FN (pred_id=0)
-        pred_dict = convert_format_pred(input_videoId, pred_score[pred_id], pred_catId, (pred_seg==pred_id).astype(np.uint8))
-        coco_list.append(pred_dict)
+        # pred_score is sorted by pred_id, not gt_id
+        pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
+        coco_list[i] = pred_dict #pre-allocation is faster !
         # coco format for gt
-        gt_dict['annotations'].append(convert_format_gt((gt==gt_id).astype(np.uint8), gt_id))
-
+        gt_dict['annotations'].append(convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id))
+    
+    import pdb; pdb.set_trace()
     print('\n\t-\tWrite COCO object to json ..')
     writejson(coco_list, filename = output_name+'_pred.json')
     writejson(gt_dict, filename = output_name+'_gt.json')
@@ -319,14 +325,14 @@ if __name__ == '__main__':
     ## Create predict.json and gt.json by using functions above
     print('load data')
     args = get_args()
-    gt_seg, pred_seg, pred_score = load_data()
+    gt_seg, pred_seg, pred_score = load_data(args)
 
 
     print('create coco file')
     start_time = int(round(time.time() * 1000))
     main(gt_seg, pred_seg, pred_score, args.output_name)
     time_diff = current_milli_time()-start_time
-    print("old f",time_diff)
+    print("runtime:",time_diff)
 
     # # Evaluation script for video instance segmentation
     if evaluate == True:
