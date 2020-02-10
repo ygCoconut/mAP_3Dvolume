@@ -6,7 +6,7 @@
 https://github.com/youtubevos/cocoapi.git
 This script allows you to obtain .json files in coco format from the ground truth instance segmentation array and the resulting instance prediction. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True, which should be the case by default. 
 """
-
+import sys
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -20,33 +20,75 @@ import h5py
 import os, sys
 import argparse
 
-# Arguments
-parser = argparse.ArgumentParser(description='Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
 
-parser.add_argument('-p','--prediction_path', type=str, default='~/my_ndarray.h5')
-parser.add_argument('-gt','--ground_truth_path', type=str, default='~/my_ndarray.h5')
-parser.add_argument('-aff','--affinity_path', type=str, default='~/my_ndarray.h5')
+##### 1. I/O
+def is_python3():
+    return sys.version[0]=='3'
+def get_args():
+    parser = argparse.ArgumentParser(description='Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
+    parser.add_argument('-p','--predict-seg', type=str, default='~/my_ndarray.h5',
+                       help='path to predicted instance segmentation result')
+    parser.add_argument('-gt','--gt-seg', type=str, default='~/my_ndarray.h5',
+                       help='path to ground truth segmentation result')
+    # either input the pre-compute prediction score
+    parser.add_argument('-ps','--predict-score', type=str, default='',
+                       help='path to confidence score for each prediction')
+    # or avg input affinity/heatmap prediction
+    parser.add_argument('-ph','--predict-heatmap', type=str, default='',
+                       help='path to heatmap for all predictions')
+    parser.add_argument('-phc','--predict-heatmap-channel', type=int, default=-1,
+                       help='heatmap channel to use')
+    parser.add_argument('-o','--output-name', type=str, default='coco',
+                       help='output name prefix')
 
-parser.add_argument('-eval','--evaluate_map_score', type=bool, default=True)
+    parser.add_argument('-eval','--do-eval', type=bool, default=True,
+                       help='do evaluation')
+    args = parser.parse_args()
+    
+    if args.predict_heatmap=='' and args.predict_score=='':
+        raise ValueError('at least one of "predict_heatmap" and "predict_score" should not be zero')
+    return args
 
-args = parser.parse_args()
+def load_h5(path, vol=''):
+    # do the first key
+    fid = h5py.File(path, 'r')
+    if vol == '': 
+        if is_python3():
+            vol = list(fid)[0]
+        else: # python 2
+            vol = fid.keys()[0] 
+    return np.array(fid[vol]).squeeze()
 
-# load data arguments
-prediction = args.prediction_path
-ground_truth= args.ground_truth_path
-affinity = args.affinity_path
+def heatmap_to_score(pred, heatmap, channel=-1):
+    if heatmap.ndim>pred.ndim:
+        if channel != -1:
+            heatmap = heatmap[channel]
+        else:
+            heatmap = heatmap.mean(axis=0)
+    pred_id = np.unique(pred)
+    pred_id = pred_id[pred_id>0]
 
-evaluate = args.evaluate_map_score
+    counts = np.bincount(pred, minlength=pred_id.max()+1)
+    sums = np.bincount(pred, weights=heatmap, minlength=pred_id.max()+1)
+    return np.vstack([pred_id,sums/counts]).T
 
+def load_data(args):
+    # load data arguments
+    pred_seg = load_h5(args.predict_seg)
+    gt_seg = load_h5(args.gt_seg)
+    if args.predict_score != '':
+        # Nx2: pred_id, pred_sc
+        pred_score = load_h5(args.predict_score)
+    else:
+        pred_score = load_h5(args.predict_heatmap)
+        pred_score = heatmap_to_score(pred_seg, pred_score, args.predict_heatmap_channel)
 
-# # How to convert video instance segmentation results into COCO format
+    return gt_seg, pred_seg, pred_score
 
-def loadh5py(path, vol="main"):
-    return np.array(h5py.File(path, 'r')[vol]).squeeze()
-
+###### 2. Seg IoU
 def get_bb3d(seg,do_count=False, uid=None):
     """returns bounding box of segments for higher processing speed
-    Used for seg_iou3d. Written by Donglai Wei"""
+    Used for seg_iou3d."""
     sz = seg.shape
     assert len(sz)==3
     if uid is None:
@@ -90,8 +132,7 @@ def get_bb3d(seg,do_count=False, uid=None):
     return out[uid]
 
 def seg_iou3d(seg1, seg2, return_extra=False):
-    """returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
-    Written by Donglai Wei"""
+    # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (gt,pred)
     # return: id_1,id_2,size_1,size_2,iou
     ui,uc = np.unique(seg1,return_counts=True)
@@ -113,6 +154,7 @@ def seg_iou3d(seg1, seg2, return_extra=False):
         if out[j,1]>0:
             out[j,3] = uc2[ui2==out[j,1]] # matched seg size
             out[j,4] = float(uc3.max())/(out[j,2]+out[j,3]-uc3.max()) # iou
+
     if return_extra: # for FP
         return out,ui2,uc2
     else:
@@ -120,96 +162,58 @@ def seg_iou3d(seg1, seg2, return_extra=False):
 
 def obtain_id_map(gt, pred):
     """create complete mapping of ids for gt and pred pairs:"""
-#     ui1,uc1 = np.unique(gt,return_counts=True)
-#     uc1=uc1[ui1>0];ui1=ui1[ui1>0] #ids except background ( =0 )
-    ui2,uc2 = np.unique(pred,return_counts=True)
-    uc2=uc2[ui2>0];ui2=ui2[ui2>0] #ids except background ( =0 )
+    # 1. get matched pair of ids
+    gtids_map, ui2, _ = seg_iou3d(gt, pred, return_extra=True)
+    gtids_map = gtids_map[:,:2]
 
-    # create complete mapping of ids for gt and pred:
-        # 1. get ids that are not false positives, i.e. gt IDs that have a matching pred pair
-    gtids_map = seg_iou3d(gt, pred)[:,:2]
-    mask_FP = np.isin(ui2, gtids_map[:,1].flatten(), assume_unique=True, invert=True)
-    false_positives = ui2[mask_FP]
+    # 2. get false positives
+    false_positives = ui2[np.in1d(ui2, gtids_map[:,1], invert=True)]
+
     #use hstack and vstack for speedup
-    fp_map = np.vstack((np.zeros(np.size(false_positives)), false_positives)).T
-    full_map = np.vstack((gtids_map, fp_map))
+    full_map = np.vstack((gtids_map, np.zeros((len(false_positives),2),int)))
+    full_map[gtids_map.shape[0]:,1] = false_positives
+
     return full_map
 
-def affinity_score(affinity, mask0, only_z=False):
-    if only_z == True:
-        return np.mean(affinity[0][mask0.squeeze()].flatten())/255
-    else:
-        return np.mean( np.mean(affinity, axis=0).squeeze()[mask0.squeeze()].flatten() )/255
+#### 3. COCO format 
+def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
+    pred_dict = dict()
+    pred_dict['video_id'] = input_videoId
+    pred_dict['score'] = pred_score
+    pred_dict['category_id'] = pred_catId
+    pred_dict['segmentations'] = [None]*pred_seg.shape[0]
+    z_nonzero = np.max(np.max(gt,axis=1),axis=1)
+    for zid in np.where(z_nonzero>0)[0]:
+        pred_dict['segmentations'][zid] = mask.encode(np.asfortranarray(pred_seg[zid]))
+        if is_python3():
+            pred_dict['segmentations'][zid]['counts'] = pred_dict['segmentations'][zid]['counts'].decode('ascii')
+        
+    return pred_dict
 
-def obtain_masks(gt, pred, gtids_map, only_pred=False):
-    """This function takes label prediction and label ground truth of a 3D vol as input and returns the masks
-    of the ground truth and the prediction of all instances"""
-    mask_gt = []
-    mask_pred = [] 
-    
-    if len(np.array(gtids_map).shape) == 1:
-        gtids_map = gtids_map.reshape([1,2])
-        
-#    gtids_map has shape (1,2) in our case
-    for i in range(np.shape(gtids_map)[0]):
-        pred_id = np.int(gtids_map[i,1])
-        mask1 = np.isin(pred.flatten(), pred_id).reshape(pred.shape)
-        mask_pred.append(mask1)
-    
-    if only_pred == False:
-        for i in range(np.shape(gtids_map)[0]):
-            gt_id = np.int(gtids_map[i,0])
-            mask2 = np.isin(gt.flatten(), gt_id).reshape(gt.shape)
-            mask_gt.append(mask2)
-        
-    return np.array(mask_gt).squeeze(), np.array(mask_pred).squeeze(), gtids_map
- 
-def convert_format_pred(input_videoId, pred_score, pred_catId, pred_segm):
-    res_dict = dict()
-    res_dict['video_id'] = input_videoId
-    res_dict['score'] = pred_score
-    res_dict['category_id'] = pred_catId
-    res_dict['segmentations'] = []
-    for sl in pred_segm:
-        # make z-slices without the specific instance None
-        if np.sum(sl) == 0:
-            res_dict['segmentations'].append(None)
-            continue
-        res_dict['segmentations'].append(mask.encode(np.asfortranarray(sl)))
-        # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        res_dict['segmentations'][-1]['counts'] = res_dict['segmentations'][-1]['counts'].decode('ascii')
-        
-    return res_dict
-
-# # Create GT file
-def convert_format_gt(res_dict, gt, curr_instance_idx):
-    annotation_dict = {}
-    areas = list()
+# Create GT file
+def convert_format_gt(gt, gt_id):
+    gt_dict = {}
     # move z axis to last dim in order to encode over z; mask.encode needs fortran-order array    
-    encoded = mask.encode(np.asfortranarray(np.moveaxis(gt, 0, -1)))
-    for i in range(len(encoded)):
-        areas.append(int(np.sum(gt[i].flatten())))
-        # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        encoded[i]['counts'] = encoded[i]['counts'].decode('ascii')
-        # make z-slices without the specific instance None
-        if np.sum(gt[i]) == 0:
-            encoded[i] = None
+    gt_dict['segmentations'] = [None]*gt.shape[0]
+    areas = np.sum(np.sum(gt,axis=1),axis=1)
+    for zid in np.where(areas>0):
+        gt_dict['segmentations'][zid] = mask.encode(np.asfortranarray(gt[zid]))
+        if is_python3():
+            gt_dict['segmentations'][zid]['counts'] = pred_dict['segmentations'][zid]['counts'].decode('ascii')
             
-    annotation_dict['segmentations'] = encoded
-    annotation_dict['height'] = 768,
-    annotation_dict['width'] = 1024,
-    annotation_dict['length'] = 1,
-    annotation_dict['category_id'] = 1
-    annotation_dict['id'] = curr_instance_idx
-    annotation_dict['video_id'] = 0
-    annotation_dict['areas'] = areas
-    annotation_dict['iscrowd'] = 0
+    gt_dict['height'] = gt.shape[1],
+    gt_dict['width'] = gt.shape[2],
+    gt_dict['length'] = gt.shape[0],
+    gt_dict['category_id'] = 1
+    gt_dict['id'] = gt_id
+    gt_dict['video_id'] = 0
+    gt_dict['areas'] = areas
+    gt_dict['iscrowd'] = 0
 
-    res_dict['annotations'].append(annotation_dict)
-    return res_dict
+    return gt_dict
 
 #  get GT file meta data
-def get_meta():
+def get_meta(data_size):
     # You can manually enter and complete the data here
     root_dict = dict()
                                     
@@ -230,9 +234,9 @@ def get_meta():
 
     videos = []
     video = {}
-    video['height']=768
-    video['width']=1024 
-    video['length']=165
+    video['height'] = data_size[1]
+    video['width'] = data_size[2] 
+    video['length'] = data_size[0]
     video['date_captured']="n.a" 
     video['flickr_url']=""
     video['file_names']=[]
@@ -247,14 +251,14 @@ def get_meta():
     category['name']="mitochondria"
     categories.append(category)
     
-    res_dict = dict()
-    res_dict['info'] = info
-    res_dict['licences'] = licence
-    res_dict['videos'] = videos
-    res_dict['categories'] = categories
-    res_dict['annotations'] = []
+    pred_dict = dict()
+    pred_dict['info'] = info
+    pred_dict['licences'] = licence
+    pred_dict['videos'] = videos
+    pred_dict['categories'] = categories
+    pred_dict['annotations'] = []
     
-    return res_dict 
+    return pred_dict 
     
 def writejson(coco_list, filename):        
     with open(filename, 'w') as json_file:
@@ -263,7 +267,7 @@ def writejson(coco_list, filename):
 
     
     
-def main_convert2coco(seg_data, aff_pred, convert_gt=True):
+def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     """ 
     Convert the grount truth segmentation and the corresponding predictions to a coco dataset
     to evaluate this dataset. The 3D volume is comparable to a video-type dataset and will therefore
@@ -273,19 +277,17 @@ def main_convert2coco(seg_data, aff_pred, convert_gt=True):
                                     the metadata about the dataset. 
     """
     print('\t-Started')    
-    (gt, pred) = seg_data
     coco_list = [] # JSON prediction file made with list
     gt_dict = get_meta() # JSON GT file made with dict
     num_frames = pred.shape[0]; im_h = pred.shape[1]; im_w = pred.shape[2]
     input_videoId = 0 # index of video
     
-# create complete mapping of ids for gt and pred:
+    # create complete mapping of ids for gt and pred:
     print('\t-\tObtain ID map and bounding box ..')
     id_map = obtain_id_map(gt, pred) # 2nd param bounding box not needed
     num_instances = id_map.shape[0]
 
-    ui1,uc1 = np.unique(gt,return_counts=True) #very expensive, not necessary
-    print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format(ui1.size, num_instances))
+    print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format((id_map[:,0]>0).sum(), num_instances))
     
     print('\t-\tConvert instances to COCO format ..')
 
@@ -293,106 +295,47 @@ def main_convert2coco(seg_data, aff_pred, convert_gt=True):
         print('\t-- Instance {} out of {}'.format(i+1, num_instances))
 
         print('\t-\tObtain mask of each ID ..')
-        mask_gt, mask_pred, ids_map = obtain_masks(gt, pred, id_map[i], only_pred=False)
+        gt_id, pred_id = id_map[i]
 
-        print('\t-\tObtain mean affinity ..')
-        mean_aff_score = affinity_score(aff_pred, mask_pred) # confidence of this instance
-
-        pred_catId = 1 if id_map[i,1] != 0 else 0 # category of instance
-
-        pred_segm = np.array((mask_pred), dtype=np.uint8) # segmentation mask across frames, fortr. uint8 req.
-        
-        # Format conversion
+        # coco format for pred
+        pred_catId = int(pred_id>0) # category of instance
         print('\t-\tConvert Format ..')
-        res_dict = convert_format_pred(input_videoId, mean_aff_score, pred_catId, pred_segm)
-        coco_list.append(res_dict)
-        if convert_gt == True:
-            gt_dict = convert_format_gt(gt_dict, np.array((mask_gt), dtype=np.uint8), i)
+        pred_dict = convert_format_pred(input_videoId, pred_score[pred_id], pred_catId, (pred_seg==pred_id).astype(np.uint8))
+        coco_list.append(pred_dict)
+        # coco format for gt
+        gt_dict['annotations'].append(convert_format_gt((gt==gt_id).astype(np.uint8), gt_id))
 
-    print('\n\t-\tDump COCO object to json ..')
-    writejson(coco_list, filename = 'COCO_segmentation_traindata_result.json')
-    writejson(gt_dict, filename = 'COCO_segmentation_traindata_gt.json')
+    print('\n\t-\tWrite COCO object to json ..')
+    writejson(coco_list, filename = output_name+'_pred.json')
+    writejson(gt_dict, filename = output_name+'_gt.json')
     print('\t-Finished\n\n')
 
 
-    
-## Create predict.json and gt.json by using functions above
-pred = loadh5py(prediction)
-gt = loadh5py(ground_truth)
-aff=loadh5py(affinity, vol='vol0')
-
-start_time = int(round(time.time() * 1000))
-main_convert2coco((gt, pred), aff)
-time_diff = current_milli_time()-start_time
-print("old f",time_diff)
-
-# # Evaluation script for video instance segmentation
-if evaluate == True:
-    gt_path = 'COCO_segmentation_traindata_gt.json'
-    # Define evaluator
-    ytvosGt = YTVOS(gt_path)
-    # Load segmentation result in COCO format
-    det_path = 'COCO_segmentation_traindata_result.json'
-    ytvosDt = ytvosGt.loadRes(det_path)
-
-    ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
-    ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
-    ytvosEval.evaluate()
-    ytvosEval.accumulate()
-    ytvosEval.summarize()
-
-    
-    
-"""
-def convert_format_pred_old(input_videoId, pred_score, pred_catId, pred_segm):
-    res_dict = dict()
-    res_dict['video_id'] = input_videoId
-    res_dict['score'] = pred_score
-    res_dict['category_id'] = pred_catId
-    res_dict['segmentations'] = []
-    res_dict['segmentations'] = mask.encode(np.asfortranarray(np.moveaxis(pred_segm, 0, -1)))
-    for i in range(len(res_dict['segmentations'])):
-        # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        res_dict['segmentations'][i]['counts'] = res_dict['segmentations'][i]['counts'].decode('ascii')
-        # make z-slices without the specific instance None
-        if np.sum(pred_segm[i]) == 0:
-            res_dict['segmentations'][i] = None
-    return res_dict
+if __name__ == '__main__':
+    ## Create predict.json and gt.json by using functions above
+    print('load data')
+    args = get_args()
+    gt_seg, pred_seg, pred_score = load_data()
 
 
+    print('create coco file')
+    start_time = int(round(time.time() * 1000))
+    main(gt_seg, pred_seg, pred_score, args.output_name)
+    time_diff = current_milli_time()-start_time
+    print("old f",time_diff)
 
-def convert_format_pred_new(input_videoId, pred_score, pred_catId, pred_segm):
-    res_dict = dict()
-    res_dict['video_id'] = input_videoId
-    res_dict['score'] = pred_score
-    res_dict['category_id'] = pred_catId
-    res_dict['segmentations'] = []
-    for sl in pred_segm:
-        # make z-slices without the specific instance None
-        if np.sum(sl) == 0:
-            res_dict['segmentations'].append(None)
-            continue
-        res_dict['segmentations'].append(mask.encode(np.asfortranarray(sl)))
-        # python2 and python3 bug with bytes and strings to be avoided for "counts"
-        res_dict['segmentations'][-1]['counts'] = res_dict['segmentations'][-1]['counts'].decode('ascii')
-        
-    return res_dict
+    # # Evaluation script for video instance segmentation
+    if evaluate == True:
+        print('start evaluation')
+        gt_path = 'COCO_segmentation_traindata_gt.json'
+        # Define evaluator
+        ytvosGt = YTVOS(gt_path)
+        # Load segmentation result in COCO format
+        det_path = 'COCO_segmentation_traindata_result.json'
+        ytvosDt = ytvosGt.loadRes(det_path)
 
-import time
-current_milli_time = lambda: int(round(time.time() * 1000))
-
-current_milli_time()
-
-start_time = int(round(time.time() * 1000))
-convert_format_pred_old(input_videoId, mean_aff_score, pred_catId, pred_segm)
-time_diff = current_milli_time()-start_time
-print("old_f",time_diff)
-
-start_time = int(round(time.time() * 1000))
-convert_format_pred_new(input_videoId, mean_aff_score, pred_catId, pred_segm)
-time_diff = current_milli_time()-start_time
-print("new f",time_diff)
-
-res_dict_new
-
-"""
+        ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+        ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
+        ytvosEval.evaluate()
+        ytvosEval.accumulate()
+        ytvosEval.summarize()
