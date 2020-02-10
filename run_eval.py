@@ -67,9 +67,12 @@ def heatmap_to_score(pred, heatmap, channel=-1):
             heatmap = heatmap.mean(axis=0)
     pred_id = np.unique(pred)
     pred_id = pred_id[pred_id>0]
+    pred_view = pred.ravel()
+    pred_len = pred_id.max()+1
 
-    counts = np.bincount(pred, minlength=pred_id.max()+1)
-    sums = np.bincount(pred, weights=heatmap, minlength=pred_id.max()+1)
+    counts = np.bincount(pred_view, minlength=pred_len)
+    sums = np.bincount(pred_view, weights=heatmap, minlength=pred_len)
+
     return np.vstack([pred_id,sums/counts]).T
 
 def load_data(args):
@@ -300,6 +303,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         # coco format for pred
         pred_catId = int(pred_id>0) # category of instance
         print('\t-\tConvert Format ..')
+        # TODO: what should the probability for FN (pred_id=0)
         pred_dict = convert_format_pred(input_videoId, pred_score[pred_id], pred_catId, (pred_seg==pred_id).astype(np.uint8))
         coco_list.append(pred_dict)
         # coco format for gt
