@@ -195,7 +195,11 @@ def obtain_id_map(gt, pred):
 def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
     pred_dict = dict()
     pred_dict['video_id'] = input_videoId
-    pred_dict['score'] = pred_score
+    
+    pred_dict['score'] = float(pred_score) if pred_score.size > 0 else 0 # check if not empty list
+    print(pred_score)
+    print(pred_dict['score'])
+    print(type(pred_score))
     pred_dict['category_id'] = pred_catId
     pred_dict['segmentations'] = [None]*pred_seg.shape[0] #put all slices = None
     z_nonzero = np.max(np.max(pred_seg,axis=1),axis=1)
@@ -223,7 +227,7 @@ def convert_format_gt(gt, gt_id):
     gt_dict['category_id'] = 1
     gt_dict['id'] = gt_id
     gt_dict['video_id'] = 0
-    gt_dict['areas'] = areas
+    gt_dict['areas'] = areas.tolist()
     gt_dict['iscrowd'] = 0
 
     return gt_dict
@@ -291,7 +295,6 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     print('\t-\tObtain ID map and bounding box ..')
     id_map = obtain_id_map(gt_seg, pred_seg) # 2nd param bounding box not needed
     num_instances = id_map.shape[0]
-    num_instances = 3
     coco_list = [None]*num_instances # JSON prediction file made with list
     gt_dict = get_meta(pred_seg.shape) # JSON GT file made with dict
 
@@ -314,7 +317,6 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         # coco format for gt
         gt_dict['annotations'].append(convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id))
     
-    import pdb; pdb.set_trace()
     print('\n\t-\tWrite COCO object to json ..')
     writejson(coco_list, filename = output_name+'_pred.json')
     writejson(gt_dict, filename = output_name+'_gt.json')
@@ -331,11 +333,11 @@ if __name__ == '__main__':
     print('create coco file')
     start_time = int(round(time.time() * 1000))
     main(gt_seg, pred_seg, pred_score, args.output_name)
-    time_diff = current_milli_time()-start_time
-    print("runtime:",time_diff)
+    stop_time = int(round(time.time() * 1000))
+    print("runtime:",stop_time-start_time)
 
     # # Evaluation script for video instance segmentation
-    if evaluate == True:
+    if args.do_eval == True:
         print('start evaluation')
         gt_path = 'COCO_segmentation_traindata_gt.json'
         # Define evaluator
