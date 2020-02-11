@@ -36,7 +36,7 @@ https://github.com/cocodataset/cocoapi/issues/70
 ## How it works:
 Run the following command to use the tool:
 ```
-python run_eval.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -aff "path/to/model_output.h5"
+python run_eval.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -ph "path/to/model_output.h5"
 ```
 The following steps will be executed by the script:
 1) Load the following 3D arrays:
