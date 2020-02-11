@@ -297,6 +297,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     num_instances = id_map.shape[0]
     coco_list = [None]*num_instances # JSON prediction file made with list
     gt_dict = get_meta(pred_seg.shape) # JSON GT file made with dict
+    gt_dict['annotations'] = [None]*num_instances 
 
     print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format((id_map[:,0]>0).sum(), num_instances))
     
@@ -315,7 +316,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
         coco_list[i] = pred_dict #pre-allocation is faster !
         # coco format for gt
-        gt_dict['annotations'].append(convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id))
+        gt_dict['annotations'][i] = convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id)
     
     print('\n\t-\tWrite COCO object to json ..')
     writejson(coco_list, filename = output_name+'_pred.json')
