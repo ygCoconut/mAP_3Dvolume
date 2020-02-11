@@ -195,7 +195,7 @@ def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
     pred_dict = dict()
     pred_dict['video_id'] = input_videoId
     
-    pred_dict['score'] = float(pred_score) if pred_score.size > 0 else 0 # check if not empty list
+    pred_dict['score'] = float(pred_score)
     pred_dict['category_id'] = pred_catId
     pred_dict['segmentations'] = [None]*pred_seg.shape[0] #put all slices = None
     z_nonzero = np.max(np.max(pred_seg,axis=1),axis=1)
