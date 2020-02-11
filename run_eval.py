@@ -166,13 +166,13 @@ def heatmap_to_score(pred, heatmap, channel=-1):
         else:
             heatmap = heatmap.mean(axis=0)
     pred_id = np.unique(pred)
-    pred_id = pred_id[pred_id>0]
     pred_view = pred.ravel()
     pred_len = pred_id.max()+1
     
     # relabel bincount(minlen = max_len) with ids
     counts = np.bincount(pred_view, minlength=pred_len)
     sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
+#     import pdb; pdb.set_trace()
     return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
 
     
@@ -197,9 +197,6 @@ def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
     pred_dict['video_id'] = input_videoId
     
     pred_dict['score'] = float(pred_score) if pred_score.size > 0 else 0 # check if not empty list
-    print(pred_score)
-    print(pred_dict['score'])
-    print(type(pred_score))
     pred_dict['category_id'] = pred_catId
     pred_dict['segmentations'] = [None]*pred_seg.shape[0] #put all slices = None
     z_nonzero = np.max(np.max(pred_seg,axis=1),axis=1)
@@ -334,7 +331,7 @@ if __name__ == '__main__':
     start_time = int(round(time.time() * 1000))
     main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
-    print("runtime:",stop_time-start_time)
+    print("RUNTIME:\t", str((stop_time-start_time)/1000))
 
     # # Evaluation script for video instance segmentation
     if args.do_eval == True:
