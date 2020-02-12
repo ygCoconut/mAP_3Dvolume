@@ -172,7 +172,7 @@ def heatmap_to_score(pred, heatmap, channel=-1):
     # relabel bincount(minlen = max_len) with ids
     counts = np.bincount(pred_view, minlength=pred_len)
     sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
-    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
+    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])/255.0]).T 
 
     
 def obtain_id_map(gt, pred):
@@ -220,6 +220,7 @@ def convert_format_gt(gt, gt_id):
     gt_dict['height'] = gt.shape[1],
     gt_dict['width'] = gt.shape[2],
     gt_dict['length'] = gt.shape[0],
+    gt_dict['length'] = 1,
     gt_dict['category_id'] = 1
     gt_dict['id'] = gt_id
     gt_dict['video_id'] = 0
@@ -317,6 +318,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     writejson(coco_list, filename = output_name+'_pred.json')
     writejson(gt_dict, filename = output_name+'_gt.json')
     print('\t-Finished\n\n')
+    return output_name+'_pred.json', output_name+'_gt.json'
 
 
 if __name__ == '__main__':
@@ -328,18 +330,18 @@ if __name__ == '__main__':
 
     print('create coco file')
     start_time = int(round(time.time() * 1000))
-    main(gt_seg, pred_seg, pred_score, args.output_name)
+    pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
     print('\t\t-RUNTIME:\t', str((stop_time-start_time)/1000), '[sec]')
 
     # # Evaluation script for video instance segmentation
     if args.do_eval == True:
         print('start evaluation')
-        gt_path = 'COCO_segmentation_traindata_gt.json'
+        gt_path = gt_json
         # Define evaluator
         ytvosGt = YTVOS(gt_path)
         # Load segmentation result in COCO format
-        det_path = 'COCO_segmentation_traindata_result.json'
+        det_path = pred_json
         ytvosDt = ytvosGt.loadRes(det_path)
 
         ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
