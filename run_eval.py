@@ -345,6 +345,8 @@ if __name__ == '__main__':
         ytvosDt = ytvosGt.loadRes(det_path)
 
         ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+        #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
+        ytvosEval.params.areaRng = [[0**2, 1e10], [0**2, 10000], [10000, 50000], [50000, 10e10]] # [All, Small, Medium, Large]
         ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
         ytvosEval.evaluate()
         ytvosEval.accumulate()
