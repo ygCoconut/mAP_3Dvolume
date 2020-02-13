@@ -179,14 +179,17 @@ def obtain_id_map(gt, pred):
     """create complete mapping of ids for gt and pred pairs:"""
     # 1. get matched pair of ids
     gtids_map, ui2, _ = seg_iou3d(gt, pred, return_extra=True)
-    gtids_map = gtids_map[:,:2]
-
+#     ious = gtids_map[:,[0,1,3]]
+#     gtids_map = gtids_map[:,:2]
+    gtids_map = gtids_map[:,[0,1,4]]
+    
     # 2. get false positives
     false_positives = ui2[np.isin(ui2, gtids_map[:,1], assume_unique=True, invert=True)]
 
     #use hstack and vstack for speedup
-    full_map = np.vstack((gtids_map, np.zeros((len(false_positives),2),int)))
-    full_map[gtids_map.shape[0]:,1] = false_positives
+    fp_stack = np.zeros((len(false_positives),3),int)
+    fp_stack[:,1] = false_positives #insert false positives
+    full_map = np.vstack((gtids_map, fp_stack))
 
     return full_map
 
@@ -303,7 +306,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         print('\t-- Instance {} out of {}'.format(i+1, num_instances))
 
         print('\t-\tObtain mask of each ID ..')
-        gt_id, pred_id = id_map[i]
+        gt_id, pred_id, _ = id_map[i]
 
         # coco format for pred
         pred_catId = int(pred_id>0) # category of instance
@@ -317,6 +320,8 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     print('\n\t-\tWrite COCO object to json ..')
     writejson(coco_list, filename = output_name+'_pred.json')
     writejson(gt_dict, filename = output_name+'_gt.json')
+    np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f',
+               header='GT_id pred_id IoU\n--------------------' )
     print('\t-Finished\n\n')
     return output_name+'_pred.json', output_name+'_gt.json'
 
