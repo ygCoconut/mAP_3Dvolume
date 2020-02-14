@@ -9,8 +9,10 @@ This script allows you to obtain .json files in coco format from the ground trut
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from pycocotools.ytvos import YTVOS
-from pycocotools.ytvoseval import YTVOSeval
+# from pycocotools.ytvos import YTVOS
+# from pycocotools.ytvoseval import YTVOSeval
+from pycocotools.coconut import YTVOS
+from pycocotools.coconuteval import YTVOSeval
 
 import pycocotools.mask as mask
 import json
@@ -178,17 +180,16 @@ def heatmap_to_score(pred, heatmap, channel=-1):
 def obtain_id_map(gt, pred):
     """create complete mapping of ids for gt and pred pairs:"""
     # 1. get matched pair of ids
-    gtids_map, ui2, _ = seg_iou3d(gt, pred, return_extra=True)
-#     ious = gtids_map[:,[0,1,3]]
-#     gtids_map = gtids_map[:,:2]
-    gtids_map = gtids_map[:,[0,1,4]]
+    gtids_map, ui2, uc2 = seg_iou3d(gt, pred, return_extra=True)
+    gtids_map = gtids_map[:,[0,1,4,2,3]]
     
     # 2. get false positives
     false_positives = ui2[np.isin(ui2, gtids_map[:,1], assume_unique=True, invert=True)]
 
     #use hstack and vstack for speedup
-    fp_stack = np.zeros((len(false_positives),3),int)
+    fp_stack = np.zeros((len(false_positives),5),int)
     fp_stack[:,1] = false_positives #insert false positives
+    fp_stack[:,4] = uc2[false_positives-1] #insert false positives, -1 for background
     full_map = np.vstack((gtids_map, fp_stack))
 
     return full_map
@@ -297,7 +298,7 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     num_instances = id_map.shape[0]
     coco_list = [None]*num_instances # JSON prediction file made with list
     gt_dict = get_meta(pred_seg.shape) # JSON GT file made with dict
-
+    gt_dict['annotations'] = [None]*num_instances
     print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format((id_map[:,0]>0).sum(), num_instances))
     
     print('\t-\tConvert instances to COCO format ..')
@@ -306,22 +307,35 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         print('\t-- Instance {} out of {}'.format(i+1, num_instances))
 
         print('\t-\tObtain mask of each ID ..')
-        gt_id, pred_id, _ = id_map[i]
+        gt_id, pred_id, _, _, _ = id_map[i]
 
         # coco format for pred
         pred_catId = int(pred_id>0) # category of instance
         print('\t-\tConvert Format ..')
         # pred_score is sorted by pred_id, not gt_id
-        pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
-        coco_list[i] = pred_dict #pre-allocation is faster !
+        if pred_id > 0: #we do not convert background
+            pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
+            coco_list[i] = pred_dict #pre-allocation is faster !
+        else:
+            print("gt:", i)
+
         # coco format for gt
-        gt_dict['annotations'].append(convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id))
-    
+        if gt_id > 0: #we do not convert background to json
+            gt_dict['annotations'][i] = convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id)
+        else:
+            print("pred:", i)
+ 
+    import pdb; pdb.set_trace()
+    coco_list = [i for i in coco_list if i] #remove empty background elements
+    gt_dict['annotations'] = [i for i in gt_dict['annotations'] if i]
+
     print('\n\t-\tWrite COCO object to json ..')
     writejson(coco_list, filename = output_name+'_pred.json')
     writejson(gt_dict, filename = output_name+'_gt.json')
-    np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f',
-               header='GT_id pred_id IoU\n--------------------' )
+    header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
+            'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
+            '-------------------------------------------'
+    np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f\t\t%4d\t\t%d', header=header)
     print('\t-Finished\n\n')
     return output_name+'_pred.json', output_name+'_gt.json'
 
@@ -351,8 +365,39 @@ if __name__ == '__main__':
 
         ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
         #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        ytvosEval.params.areaRng = [[0**2, 1e10], [0**2, 10000], [10000, 50000], [50000, 10e10]] # [All, Small, Medium, Large]
+        ytvosEval.params.areaRng = [[0, 1e20], [0, 10000], [10000, 500000], [50000, 1e20]] # [All, Small, Medium, Large]
         ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
         ytvosEval.evaluate()
         ytvosEval.accumulate()
         ytvosEval.summarize()
+        
+        
+
+        
+        
+######################################################################################## DEBUG ##########################
+"""
+from pycocotools.coconut import YTVOS
+from pycocotools.coconuteval import YTVOSeval
+
+gt_json='../removeCrumbs_histograms_lucchi/coco_gt_only2LARGE.json'
+pred_json='../removeCrumbs_histograms_lucchi/coco_pred_only2LARGE.json'
+gt_json='../removeCrumbs_histograms_lucchi/coco_gt_all41instances.json'
+pred_json='../removeCrumbs_histograms_lucchi/coco_pred_all41instances.json'
+
+
+print('start evaluation')
+gt_path = gt_json
+# Define evaluator
+ytvosGt = YTVOS(gt_path)
+# Load segmentation result in COCO format
+det_path = pred_json
+ytvosDt = ytvosGt.loadRes(det_path)
+ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+#https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
+ytvosEval.params.areaRng = [[0, 1e7], [0, 1e6], [1e6, 5e6], [5e6, 1e7]] # [All, Small, Medium, Large]
+ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
+ytvosEval.evaluate()
+ytvosEval.accumulate()
+ytvosEval.summarize()
+"""
