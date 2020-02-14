@@ -325,7 +325,6 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         else:
             print("pred:", i)
  
-    import pdb; pdb.set_trace()
     coco_list = [i for i in coco_list if i] #remove empty background elements
     gt_dict['annotations'] = [i for i in gt_dict['annotations'] if i]
 
