@@ -143,7 +143,6 @@ def seg_iou3d(seg1, seg2, return_extra=False):
     bbs = get_bb3d(seg1,uid=ui)[:,1:]
     out[:,0] = ui
     out[:,2] = uc
-
     for j,i in enumerate(ui):
         bb= bbs[j]
         ui3,uc3=np.unique(seg2[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(seg1[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
@@ -185,11 +184,10 @@ def obtain_id_map(gt, pred):
     
     # 2. get false positives
     false_positives = ui2[np.isin(ui2, gtids_map[:,1], assume_unique=True, invert=True)]
-
     #use hstack and vstack for speedup
     fp_stack = np.zeros((len(false_positives),5),int)
     fp_stack[:,1] = false_positives #insert false positives
-    fp_stack[:,4] = uc2[false_positives-1] #insert false positives, -1 for background
+    fp_stack[:,4] = uc2[np.isin(ui2, false_positives)] #insert false positives, -1 for background
     full_map = np.vstack((gtids_map, fp_stack))
 
     return full_map
@@ -316,14 +314,12 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
         if pred_id > 0: #we do not convert background
             pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
             coco_list[i] = pred_dict #pre-allocation is faster !
-        else:
-            print("gt:", i)
+        else: print("False Negative for instance #{}".format(i))
 
         # coco format for gt
         if gt_id > 0: #we do not convert background to json
             gt_dict['annotations'][i] = convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id)
-        else:
-            print("pred:", i)
+        else: print("False Positive for instance #{}".format(i))
  
     coco_list = [i for i in coco_list if i] #remove empty background elements
     gt_dict['annotations'] = [i for i in gt_dict['annotations'] if i]
@@ -350,7 +346,7 @@ if __name__ == '__main__':
     start_time = int(round(time.time() * 1000))
     pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
-    print('\t\t-RUNTIME:\t', str((stop_time-start_time)/1000), '[sec]')
+    print('\t\t-RUNTIME:\t{})[sec]'.format((stop_time-start_time)/1000) )
 
     # # Evaluation script for video instance segmentation
     if args.do_eval == True:
@@ -364,7 +360,7 @@ if __name__ == '__main__':
 
         ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
         #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        ytvosEval.params.areaRng = [[0, 1e20], [0, 10000], [10000, 500000], [50000, 1e20]] # [All, Small, Medium, Large]
+        ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
         ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
         ytvosEval.evaluate()
         ytvosEval.accumulate()
