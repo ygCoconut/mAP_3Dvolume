@@ -346,7 +346,7 @@ if __name__ == '__main__':
     start_time = int(round(time.time() * 1000))
     pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
-    print('\t\t-RUNTIME:\t{})[sec]'.format((stop_time-start_time)/1000) )
+    print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
     # # Evaluation script for video instance segmentation
     if args.do_eval == True:
