@@ -42,8 +42,9 @@ def get_args():
                        help='heatmap channel to use')
     parser.add_argument('-o','--output-name', type=str, default='coco',
                        help='output name prefix')
-
-    parser.add_argument('-eval','--do-eval', type=bool, default=True,
+    parser.add_argument('-idmap','--get_idmap', type=bool, default='True',
+                       help='get id map to visualize data')
+    parser.add_argument('-eval','--do_eval', type=str, default='True',
                        help='do evaluation')
     args = parser.parse_args()
     
@@ -80,11 +81,11 @@ def load_data(args):
 def writejson(coco_list, filename):        
     with open(filename, 'w') as json_file:
         json.dump(coco_list, json_file)
-    print('\t-\tCOCO object to written to {}.'.format(filename))
+    print('\t-\tCOCO object written to {}.'.format(filename))
 
 
 
-###### 2. Seg IoU
+###### 2. Seg IoU ID map
 def get_bb3d(seg,do_count=False, uid=None):
     """returns bounding box of segments for higher processing speed
     Used for seg_iou3d."""
@@ -159,7 +160,6 @@ def seg_iou3d(seg1, seg2, return_extra=False):
         return out
 
 
-###
 def heatmap_to_score(pred, heatmap, channel=-1):
     if heatmap.ndim>pred.ndim:
         if channel != -1:
@@ -192,13 +192,14 @@ def obtain_id_map(gt, pred):
 
     return full_map
 
+
 #### 3. COCO format 
-def convert_format_pred(input_videoId, pred_score, pred_catId, pred_seg):
+def convert_format_pred(input_videoId, pred_score, pred_seg):
     pred_dict = dict()
     pred_dict['video_id'] = input_videoId
     
     pred_dict['score'] = float(pred_score)
-    pred_dict['category_id'] = pred_catId
+    pred_dict['category_id'] = int(1) # we only have instacnes of the same category
     pred_dict['segmentations'] = [None]*pred_seg.shape[0] #put all slices = None
     z_nonzero = np.max(np.max(pred_seg,axis=1),axis=1)
     for zid in np.where(z_nonzero>0)[0]:
@@ -223,8 +224,8 @@ def convert_format_gt(gt, gt_id):
     gt_dict['width'] = gt.shape[2],
     gt_dict['length'] = gt.shape[0],
     gt_dict['length'] = 1,
-    gt_dict['category_id'] = 1
-    gt_dict['id'] = gt_id
+    gt_dict['category_id'] = 1 # we only have instances of the same category
+    gt_dict['id'] = int(gt_id)
     gt_dict['video_id'] = 0
     gt_dict['areas'] = areas.tolist()
     gt_dict['iscrowd'] = 0
@@ -264,8 +265,8 @@ def get_meta(data_size):
 
     categories = []
     category = {}
-    category['supercategory']="cell"
-    category['id']=1
+    category['supercategory']="cell" 
+    category['id']=int(1)
     category['name']="mitochondria"
     categories.append(category)
     
@@ -289,48 +290,43 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
                                     the metadata about the dataset. 
     """
     print('\t-Started')    
-    input_videoId = 0 # index of video
-    # create complete mapping of ids for gt and pred:
-    print('\t-\tObtain ID map and bounding box ..')
-    id_map = obtain_id_map(gt_seg, pred_seg) # 2nd param bounding box not needed
-    num_instances = id_map.shape[0]
-    coco_list = [None]*num_instances # JSON prediction file made with list
-    gt_dict = get_meta(pred_seg.shape) # JSON GT file made with dict
-    gt_dict['annotations'] = [None]*num_instances
-    print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format((id_map[:,0]>0).sum(), num_instances))
+
+    ui,uc = np.unique(gt_seg,return_counts=True)
+    uc=uc[ui>0];ui=ui[ui>0]
+    ui2,uc2 = np.unique(pred_seg,return_counts=True)
+    uc2=uc2[ui2>0];ui2=ui2[ui2>0]
+    
+    input_videoId = 0 # index of single video = 3D volume
+    num_gt_instances=ui.shape[0]
+    num_pred_instances=ui2.shape[0]
+    coco_list_pred = [None]*num_pred_instances # JSON prediction file made with list
+    coco_dict_gt = get_meta(pred_seg.shape) # JSON GT file made with dict
+    coco_dict_gt['annotations'] = [None]*num_gt_instances
+    print('\t-\tTotal number of instances:\tgt: {}\tpred: {}'.format(num_gt_instances, num_pred_instances))
     
     print('\t-\tConvert instances to COCO format ..')
+    for i in range(np.max([num_gt_instances, num_pred_instances])):
+        print('\t-- Instance {} out of {}'.format(i+1, np.max([num_gt_instances, num_pred_instances])))
+        
+        ### gt instances
+        if i < num_gt_instances:
+            gt_id = ui[i]
+            # coco format for gt
+            coco_dict_gt['annotations'][i] = convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id)
 
-    for i in range(num_instances):
-        print('\t-- Instance {} out of {}'.format(i+1, num_instances))
+        #### predictions    
+        if i < num_pred_instances:
+            pred_id = ui2[i]
+            pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], (pred_seg==pred_id).astype(np.uint8))
+            coco_list_pred[i] = pred_dict #pre-allocation is faster !
 
-        print('\t-\tObtain mask of each ID ..')
-        gt_id, pred_id, _, _, _ = id_map[i]
-
-        # coco format for pred
-        pred_catId = int(pred_id>0) # category of instance
-        print('\t-\tConvert Format ..')
-        # pred_score is sorted by pred_id, not gt_id
-        if pred_id > 0: #we do not convert background
-            pred_dict = convert_format_pred(input_videoId, pred_score[pred_score[:,0]==pred_id,1], pred_catId, (pred_seg==pred_id).astype(np.uint8))
-            coco_list[i] = pred_dict #pre-allocation is faster !
-        else: print("False Negative for instance #{}".format(i))
-
-        # coco format for gt
-        if gt_id > 0: #we do not convert background to json
-            gt_dict['annotations'][i] = convert_format_gt((gt_seg==gt_id).astype(np.uint8), gt_id)
-        else: print("False Positive for instance #{}".format(i))
  
-    coco_list = [i for i in coco_list if i] #remove empty background elements
-    gt_dict['annotations'] = [i for i in gt_dict['annotations'] if i]
+    coco_list_pred = [i for i in coco_list_pred if i] #remove empty None elements (if exist)
+    coco_dict_gt['annotations'] = [i for i in coco_dict_gt['annotations'] if i]
 
     print('\n\t-\tWrite COCO object to json ..')
-    writejson(coco_list, filename = output_name+'_pred.json')
-    writejson(gt_dict, filename = output_name+'_gt.json')
-    header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
-            'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
-            '-------------------------------------------'
-    np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f\t\t%4d\t\t%d', header=header)
+    writejson(coco_list_pred, filename = output_name+'_pred.json')
+    writejson(coco_dict_gt, filename = output_name+'_gt.json')
     print('\t-Finished\n\n')
     return output_name+'_pred.json', output_name+'_gt.json'
 
@@ -341,15 +337,24 @@ if __name__ == '__main__':
     args = get_args()
     gt_seg, pred_seg, pred_score = load_data(args)
 
-
-    print('create coco file')
+    
+    # create complete mapping of ids for gt and pred, then write it to json:
+    if args.get_idmap == 'True':
+        print('\t-\tObtain ID map and bounding box ..')
+        id_map = obtain_id_map(gt_seg, pred_seg)
+        header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
+            'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
+            '-------------------------------------------'
+        np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f\t\t%4d\t\t%d', header=header)
+        
+    print('\n\ncreate coco file')
     start_time = int(round(time.time() * 1000))
     pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
     # # Evaluation script for video instance segmentation
-    if args.do_eval == True:
+    if args.do_eval == 'True':
         print('start evaluation')
         gt_path = gt_json
         # Define evaluator
@@ -369,7 +374,7 @@ if __name__ == '__main__':
         
 
         
-        
+#correct result when taking list without the 25 !!! :))
 ######################################################################################## DEBUG ##########################
 """
 from pycocotools.coconut import YTVOS
