@@ -371,33 +371,3 @@ if __name__ == '__main__':
         ytvosEval.accumulate()
         ytvosEval.summarize()
         
-        
-
-        
-#correct result when taking list without the 25 !!! :))
-######################################################################################## DEBUG ##########################
-"""
-from pycocotools.coconut import YTVOS
-from pycocotools.coconuteval import YTVOSeval
-
-gt_json='../removeCrumbs_histograms_lucchi/coco_gt_only2LARGE.json'
-pred_json='../removeCrumbs_histograms_lucchi/coco_pred_only2LARGE.json'
-gt_json='../removeCrumbs_histograms_lucchi/coco_gt_all41instances.json'
-pred_json='../removeCrumbs_histograms_lucchi/coco_pred_all41instances.json'
-
-
-print('start evaluation')
-gt_path = gt_json
-# Define evaluator
-ytvosGt = YTVOS(gt_path)
-# Load segmentation result in COCO format
-det_path = pred_json
-ytvosDt = ytvosGt.loadRes(det_path)
-ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
-#https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-ytvosEval.params.areaRng = [[0, 1e7], [0, 1e6], [1e6, 5e6], [5e6, 1e7]] # [All, Small, Medium, Large]
-ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
-ytvosEval.evaluate()
-ytvosEval.accumulate()
-ytvosEval.summarize()
-"""
