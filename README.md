@@ -19,7 +19,7 @@ pip install requirements.txt
 ```
 
 
-- Then, go through https://github.com/youtubevos/cocoapi to install the pycocotools:
+- Then, go through https://github.com/ygCoconut/cocoapi/ to install the pycocotools:
 ```
 git clone https://github.com/youtubevos/cocoapi.git
 cd cocoapi/PythonAPI
