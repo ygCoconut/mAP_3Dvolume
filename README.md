@@ -4,6 +4,7 @@
 This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. 
 
 Our tool relates on this fork of the COCO API: https://github.com/youtubevos/cocoapi
+Please make sure to use our own re-fork, https://github.com/ygCoconut/cocoapi/ if you intend to evaluate the segments by size.
 
 ## Important notes:
 - The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.
