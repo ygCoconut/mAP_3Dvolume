@@ -42,7 +42,7 @@ def get_args():
                        help='heatmap channel to use')
     parser.add_argument('-o','--output-name', type=str, default='coco',
                        help='output name prefix')
-    parser.add_argument('-idmap','--get_idmap', type=bool, default='True',
+    parser.add_argument('-idmap','--get_idmap', type=str, default='True',
                        help='get id map to visualize data')
     parser.add_argument('-eval','--do_eval', type=str, default='True',
                        help='do evaluation')
@@ -333,21 +333,21 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
 
 if __name__ == '__main__':
     ## Create predict.json and gt.json by using functions above
-    print('load data')
+    print('\nload data')
     args = get_args()
     gt_seg, pred_seg, pred_score = load_data(args)
 
     
     # create complete mapping of ids for gt and pred, then write it to json:
     if args.get_idmap == 'True':
-        print('\t-\tObtain ID map and bounding box ..')
+        print('\n[optional]\tObtain ID map and bounding box ..')
         id_map = obtain_id_map(gt_seg, pred_seg)
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
             'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
             '-------------------------------------------'
         np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f\t\t%4d\t\t%d', header=header)
         
-    print('\n\ncreate coco file')
+    print('\ncreate coco file')
     start_time = int(round(time.time() * 1000))
     pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
     stop_time = int(round(time.time() * 1000))
