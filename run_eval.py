@@ -46,6 +46,8 @@ def get_args():
                        help='get id map to visualize data')
     parser.add_argument('-eval','--do_eval', type=str, default='True',
                        help='do evaluation')
+    parser.add_argument('-th','--threshold', type=str, default='0, 1e10, 0, 1e5, 1e5, 5e5, 5e5, 1e10',
+                       help='get threshold for volume range')
     args = parser.parse_args()
     
     if args.predict_heatmap=='' and args.predict_score=='':
@@ -131,7 +133,7 @@ def get_bb3d(seg,do_count=False, uid=None):
 
     return out[uid]
 
-def seg_iou3d(seg1, seg2, return_extra=False):
+def seg_iou3d(seg1, seg2, args, return_extra=False):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (gt,pred)
     # return: id_1,id_2,size_1,size_2,iou
@@ -140,25 +142,54 @@ def seg_iou3d(seg1, seg2, return_extra=False):
     ui2,uc2 = np.unique(seg2,return_counts=True)
     uc2=uc2[ui2>0];ui2=ui2[ui2>0]
 
-    out = np.zeros((len(ui),5),float)
     bbs = get_bb3d(seg1,uid=ui)[:,1:]
-    out[:,0] = ui
-    out[:,2] = uc
+    
+    iou_table = np.zeros((len(ui), 4, 3), float) # contains iou_all, iou_small, iou_medium, iou_large
+    th = np.fromstring(args.threshold, sep = ",").reshape(4, -1) # [All, Small, Medium, Large]
+
     for j,i in enumerate(ui):
+        # Find intersection of pred and gt instance inside bbox, call intersection ui3
         bb= bbs[j]
         ui3,uc3=np.unique(seg2[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(seg1[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
-        uc3[ui3==0]=0
-        # take the largest one
-        out[j,1] = ui3[np.argmax(uc3)] # matched seg id (max)
-        if out[j,1]>0:
-            out[j,3] = uc2[ui2==out[j,1]] # matched seg size
-            out[j,4] = float(uc3.max())/(out[j,2]+out[j,3]-uc3.max()) # iou
+        uc3=uc3[ui3>0] # get intersection counts
+        ui3=ui3[ui3>0] # get intersection ids
 
-    if return_extra: # for FP
-        return out,ui2,uc2
-    else:
-        return out
+        # get count of all preds inside bbox
+        uc2_subset = uc2[np.isin(ui2,ui3)]
+        assert uc2_subset.shape == uc3.shape
 
+        #IoUs = A + B - C = uc[j] + uc2_subset - uc3
+        IoUs = uc3.astype(float)/(uc[j] + uc2_subset - uc3) #all possible iou combinations of bbox ids are contained
+        
+         # false negatives = No IoU found, empty array
+        FN = False
+        if IoUs.shape[0] < 1:
+            FN = True
+
+        #filter ious by range; 1 list with 4*3=12 columns
+        for r in range(4): # fill up all, then s, m, l
+            if uc[j]>th[r,0] and uc[j]<th[r,1] and not FN: 
+                mask = (uc2_subset>th[r,0]) * (uc2_subset<th[r,1])
+                idx_iou_max = np.argmax(IoUs*mask)
+                iou_table[j,r,:] = [ ui3[idx_iou_max], uc2_subset[idx_iou_max], IoUs[idx_iou_max] ]
+
+                
+    # get false positives
+    false_positives = ui2[np.isin(ui2, iou_table[:,0,0], assume_unique=False, invert=True)]
+    fpc = uc2[np.isin(ui2, false_positives)]
+    fp_stack = np.zeros((len(false_positives), 4, 3),int)
+    #filter ious by range; 1 list with 4*3=12 columns
+    for r in range(4): # fill up all, then s, m, l
+        mask = (false_positives>th[r,0]) * (false_positives<th[r,1])
+        fp_stack[:,r,:] = np.vstack([false_positives*mask, fpc*mask, np.zeros_like(fpc) ]).T
+    full_map = np.vstack((iou_table, fp_stack))
+
+    # get gt ui and uc with the same size as full_map
+    gt_id_sz = np.zeros((full_map.shape[0], 2))
+    gt_id_sz[:ui.size] = np.vstack([ui, uc]).T
+    import pdb; pdb.set_trace()
+
+    return full_map, gt_id_sz
 
 def heatmap_to_score(pred, heatmap, channel=-1):
     if heatmap.ndim>pred.ndim:
@@ -173,23 +204,14 @@ def heatmap_to_score(pred, heatmap, channel=-1):
     # relabel bincount(minlen = max_len) with ids
     counts = np.bincount(pred_view, minlength=pred_len)
     sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
-    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])/255.0]).T 
+    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
 
     
-def obtain_id_map(gt, pred):
+def obtain_id_map(gt, pred, args):
     """create complete mapping of ids for gt and pred pairs:"""
     # 1. get matched pair of ids
-    gtids_map, ui2, uc2 = seg_iou3d(gt, pred, return_extra=True)
-    gtids_map = gtids_map[:,[0,1,4,2,3]]
-    
-    # 2. get false positives
-    false_positives = ui2[np.isin(ui2, gtids_map[:,1], assume_unique=True, invert=True)]
-    #use hstack and vstack for speedup
-    fp_stack = np.zeros((len(false_positives),5),int)
-    fp_stack[:,1] = false_positives #insert false positives
-    fp_stack[:,4] = uc2[np.isin(ui2, false_positives)] #insert false positives, -1 for background
-    full_map = np.vstack((gtids_map, fp_stack))
-
+    predids_map, uiuc = seg_iou3d(gt, pred, args)
+    full_map = np.hstack([uiuc, predids_map.reshape(-1, 12)])
     return full_map
 
 
@@ -341,11 +363,13 @@ if __name__ == '__main__':
     # create complete mapping of ids for gt and pred, then write it to json:
     if args.get_idmap == 'True':
         print('\n[optional]\tObtain ID map and bounding box ..')
-        id_map = obtain_id_map(gt_seg, pred_seg)
+        id_map = obtain_id_map(gt_seg, pred_seg, args)
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
             'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
             '-------------------------------------------'
-        np.savetxt('id_map_iou.txt', id_map, fmt='%d\t\t%d\t\t%1.4f\t\t%4d\t\t%d', header=header)
+        rowformat = '%d\t\t%d\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f'
+#         import pdb; pdb.set_trace()
+        np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
         
     print('\ncreate coco file')
     start_time = int(round(time.time() * 1000))
