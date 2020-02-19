@@ -187,7 +187,6 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
     # get gt ui and uc with the same size as full_map
     gt_id_sz = np.zeros((full_map.shape[0], 2))
     gt_id_sz[:ui.size] = np.vstack([ui, uc]).T
-    import pdb; pdb.set_trace()
 
     return full_map, gt_id_sz
 
@@ -365,10 +364,10 @@ if __name__ == '__main__':
         print('\n[optional]\tObtain ID map and bounding box ..')
         id_map = obtain_id_map(gt_seg, pred_seg, args)
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
-            'GT_id, pred_id, IoU, \t\tGT_sz, \t\tpred_sz\n' + \
-            '-------------------------------------------'
-        rowformat = '%d\t\t%d\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f\t\t%d\t%d\t%1.4f'
-#         import pdb; pdb.set_trace()
+        'ground truth \t|\t pred all \t\t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + 
+        'ID, \tSIZE, \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + \
+        '------------------------------------------------------------------------------------------------------------'
+        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
         np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
         
     print('\ncreate coco file')
