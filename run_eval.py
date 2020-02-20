@@ -47,7 +47,9 @@ def get_args():
     parser.add_argument('-eval','--do_eval', type=str, default='True',
                        help='do evaluation')
     parser.add_argument('-th','--threshold', type=str, default='0, 1e10, 0, 1e5, 1e5, 5e5, 5e5, 1e10',
-                       help='get threshold for volume range')
+                       help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
+    parser.add_argument('-json','--writejson', type=str, default='False',
+                       help='Boolean to write a coco json file')
     args = parser.parse_args()
     
     if args.predict_heatmap=='' and args.predict_score=='':
@@ -145,7 +147,7 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
     bbs = get_bb3d(seg1,uid=ui)[:,1:]
     
     iou_table = np.zeros((len(ui), 4, 3), float) # contains iou_all, iou_small, iou_medium, iou_large
-    th = np.fromstring(args.threshold, sep = ",").reshape(4, -1) # [All, Small, Medium, Large]
+    th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2) # [All, Small, Medium, Large]
 
     for j,i in enumerate(ui):
         # Find intersection of pred and gt instance inside bbox, call intersection ui3
@@ -301,7 +303,7 @@ def get_meta(data_size):
     return gt_dict 
 
     
-def main(gt_seg, pred_seg, pred_score, output_name='coco'):
+def main(gt_seg, pred_seg, pred_score, output_name='coco', args):
     """ 
     Convert the grount truth segmentation and the corresponding predictions to a coco dataset
     to evaluate this dataset. The 3D volume is comparable to a video-type dataset and will therefore
@@ -319,7 +321,9 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
     
     input_videoId = 0 # index of single video = 3D volume
     num_gt_instances=ui.shape[0]
+#     num_gt_instances= 3
     num_pred_instances=ui2.shape[0]
+#     num_pred_instances= 3
     coco_list_pred = [None]*num_pred_instances # JSON prediction file made with list
     coco_dict_gt = get_meta(pred_seg.shape) # JSON GT file made with dict
     coco_dict_gt['annotations'] = [None]*num_gt_instances
@@ -344,13 +348,16 @@ def main(gt_seg, pred_seg, pred_score, output_name='coco'):
  
     coco_list_pred = [i for i in coco_list_pred if i] #remove empty None elements (if exist)
     coco_dict_gt['annotations'] = [i for i in coco_dict_gt['annotations'] if i]
+    
+    if args.writejson == 'True':
+        print('\n\t-\tWrite COCO object to json ..')
+        writejson(coco_list_pred, filename = output_name+'_pred.json')
+        writejson(coco_dict_gt, filename = output_name+'_gt.json')
+        print('\t-Finished\n\n')
+        return output_name+'_pred.json', output_name+'_gt.json', coco_list_pred, coco_dict_gt
 
-    print('\n\t-\tWrite COCO object to json ..')
-    writejson(coco_list_pred, filename = output_name+'_pred.json')
-    writejson(coco_dict_gt, filename = output_name+'_gt.json')
-    print('\t-Finished\n\n')
-    return output_name+'_pred.json', output_name+'_gt.json'
-
+    else: return coco_list_pred, coco_dict_gt
+        
 
 if __name__ == '__main__':
     ## Create predict.json and gt.json by using functions above
@@ -364,7 +371,7 @@ if __name__ == '__main__':
         print('\n[optional]\tObtain ID map and bounding box ..')
         id_map = obtain_id_map(gt_seg, pred_seg, args)
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
-        'ground truth \t|\t pred all \t\t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + 
+        'ground truth \t|\t pred all \t\t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
         'ID, \tSIZE, \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + \
         '------------------------------------------------------------------------------------------------------------'
         rowformat = '%d\t\t%4d\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
@@ -372,25 +379,74 @@ if __name__ == '__main__':
         
     print('\ncreate coco file')
     start_time = int(round(time.time() * 1000))
-    pred_json, gt_json = main(gt_seg, pred_seg, pred_score, args.output_name)
+    if args.writejson == 'True':
+        pred_json, gt_json, coco_list_pred, coco_dict_gt = main(gt_seg, pred_seg, pred_score, args,args.output_name)
+    else: 
+        coco_list_pred, coco_dict_gt = main(gt_seg, pred_seg, pred_score, args, args.output_name)
+
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
     # # Evaluation script for video instance segmentation
     if args.do_eval == 'True':
         print('start evaluation')
-        gt_path = gt_json
+        
         # Define evaluator
-        ytvosGt = YTVOS(gt_path)
+        if False: # you can define args to load the json files here:
+            gt_path = gt_json
+            ytvosGt = YTVOS(gt_path)
+        ytvosGt = YTVOS(coco_dict_gt)
+        
         # Load segmentation result in COCO format
-        det_path = pred_json
-        ytvosDt = ytvosGt.loadRes(det_path)
+        if False: # you can define args to load the json files here:
+            det_path = pred_json
+            ytvosDt = ytvosGt.loadRes(det_path)
+        ytvosDt = ytvosGt.loadRes(coco_list_pred)
 
+        #Evaluation
         ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
-        #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
+        # Default thresholds: [All, Small, Medium, Large] = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]
+        th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
+        ytvosEval.params.areaRng = th
         ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
         ytvosEval.evaluate()
         ytvosEval.accumulate()
         ytvosEval.summarize()
         
+
+################################################# DEBUG
+    if False:
+        
+        from pycocotools.coconut import YTVOS
+        from pycocotools.coconuteval import YTVOSeval
+        import numpy as np
+        import pickle
+        def save_dict(filename_, di_):
+            with open(filename_, 'wb') as f:
+                pickle.dump(di_, f)
+
+        def load_dict(filename_):
+            with open(filename_, 'rb') as f:
+                ret_di = pickle.load(f)
+            return ret_di
+        
+#         save_dict('gt.npy', coco_dict_gt)
+        
+        
+        coco_dict_gt = load_dict('gt.npy')
+        coco_list_pred= np.load('pred.npy', allow_pickle = True).tolist()
+        
+        
+        print('start evaluation')
+        ytvosGt = YTVOS(coco_dict_gt)
+        ytvosDt = ytvosGt.loadRes(coco_list_pred)
+
+        ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+        #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
+        ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
+        
+        ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
+#         import pdb; pdb.set_trace()
+        ytvosEval.evaluate()
+        ytvosEval.accumulate()
+        ytvosEval.summarize()
