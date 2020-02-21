@@ -8,7 +8,7 @@ This script allows you to obtain .json files in coco format from the ground trut
 """
 import numpy as np
 
-# from cocoevalShort import YTVOSeval
+from cocoevalShort import YTVOSeval
 
 import json
 import h5py
@@ -156,13 +156,16 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
         FN = False
         if IoUs.shape[0] < 1:
             FN = True
-
+            
+        
+        
         #filter ious by range; 1 list with 4*3=12 columns
         for r in range(4): # fill up all, then s, m, l
             if uc[j]>th[r,0] and uc[j]<th[r,1] and not FN: 
                 mask = (uc2_subset>th[r,0]) * (uc2_subset<th[r,1])
-                idx_iou_max = np.argmax(IoUs*mask)
-                iou_table[j,r,:] = [ ui3[idx_iou_max], uc2_subset[idx_iou_max], IoUs[idx_iou_max] ]
+                if not np.all(mask) == False:
+                    idx_iou_max = np.argmax(IoUs*mask)
+                    iou_table[j,r,:] = [ ui3[idx_iou_max], uc2_subset[idx_iou_max], IoUs[idx_iou_max] ]
 
                 
     # get false positives
@@ -224,13 +227,13 @@ def main():
     ## 1. Initialization
     print('\t-Started')    
     start_time = int(round(time.time() * 1000))
-    print('\nload data')
+    print('\n\t-Load data')
     args = get_args()
     gt_seg, pred_seg, pred_score = load_data(args)
 
     
     ## 2. create complete mapping of ids for gt and pred:
-    print('\n\t\tObtain ID map and bounding box ..')
+    print('\n\t-Obtain ID map and bounding box ..')
     id_map = obtain_id_map(gt_seg, pred_seg,pred_score, args)
     
     stop_time = int(round(time.time() * 1000))
@@ -238,7 +241,7 @@ def main():
     if args.get_idmap == 'True':
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
         'ground truth \t| HEATMAP |\t\t pred all \t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
-        'ID, \tSIZE, \t|  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*112
+        'ID, \tSIZE, \t|  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*116
         rowformat = '%d\t\t%4d\t\t%d\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
         np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
 
@@ -247,7 +250,6 @@ def main():
     if args.do_eval == 'True' and args.get_idmap == 'True':
         print('start evaluation')
         
-        import pdb; pdb.set_trace()
         #Evaluation
         ytvosEval = YTVOSeval(id_map, 'segm') # 'bbox' or 'segm'
         # Default thresholds: [All, Small, Medium, Large] = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]        

@@ -73,6 +73,13 @@ class YTVOSeval:
         self.ious = self.cocoDt[:,:,-1] # contains [all, large, medium, small]
         self.scores = ID_map[:,2]
         
+#         self.fps = np.zeros(self.cocoDt.shape[1])
+#         self.fns = np.zeros_like(self.fps)
+#         self.tps = np.zeros_like(self.fps)
+#         self.fps[0] = np.count_nonzero(self.cocoGt[:,0] == 0) #trick to count zero values
+#         self.fns[0] = np.count_nonzero(ID_map[:,3] == 0)
+#         self.tps[0] = num_rows - self.fns - self.fps
+        
         self.fps = np.count_nonzero(self.cocoGt[:,0] == 0) #trick to count zero values
         self.fns = np.count_nonzero(ID_map[:,3] == 0)
         self.tps = num_rows - self.fns - self.fps
@@ -80,7 +87,12 @@ class YTVOSeval:
         self.params = Params(iouType=iouType)
         self._paramsEval = copy.deepcopy(self.params) # needed ?
     
-        import pdb; pdb.set_trace()
+    def get_tfpn(self):
+        """
+        For each instance, we need the true and false positives at each score threshold.
+        
+        """
+        pass
         
     def accumulate(self, p = None):
         '''
@@ -106,69 +118,67 @@ class YTVOSeval:
         setA = set(map(tuple, _pe.areaRng))
         setM = set(_pe.maxDets)
         # get inds to evaluate
-        m_list = [m for n, m in enumerate(p.maxDets) if m in setM]
         a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
         A0 = len(_pe.areaRng)
-        # retrieve E at each category, area range, and max number of detections
-
+        
+        import pdb; pdb.set_trace()
         
         
         
 #         GET RID OF FOR LOOP
-        for a, a0 in enumerate(a_list):
-#           Give our own scores here !! scores of instance for each slice here ?
-#           dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E]) 
-            dtScores = self.scores
-
-            # different sorting method generates slightly different results.
-            # mergesort is used to be consistent as Matlab implementation.
-            inds = np.argsort(-dtScores, kind='mergesort')
-            dtScoresSorted = dtScores[inds]
-
-#           ADD ELEMENTS HERE!
-            tps = self.tps
-            fps = self.fps
-            npig = tps + self.fns
-
-#           npig = np.count_nonzero(gtIg==0 )
-#           tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
-#           fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
-
-            tp_sum = np.cumsum(tps, axis=0).astype(dtype=np.float)
-            fp_sum = np.cumsum(fps, axis=0).astype(dtype=np.float)
+#       dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E]) 
         
-#         GET RID OF FOR LOOP
-            for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
-                tp = np.array(tp)
-                fp = np.array(fp)
-                nd = len(tp)
-                rc = tp / npig
-                pr = tp / (fp+tp+np.spacing(1)) #np.spacing adds tiny value
-                q  = np.zeros((R,))
-                ss = np.zeros((R,))
+        dtScores = self.scores
 
-                if nd:
-                    recall[t,a,m] = rc[-1]
-                else:
-                    recall[t,a,m] = 0
+        # different sorting method generates slightly different results.
+        # mergesort is used to be consistent as Matlab implementation.
+        inds = np.argsort(-dtScores, kind='mergesort')
+        dtScoresSorted = dtScores[inds]
 
-                # numpy is slow without cython optimization for accessing elements
-                # use python array gets significant speed improvement
-                pr = pr.tolist(); q = q.tolist()
+#       ADD ELEMENTS HERE!
+        tps = self.tps
+        fps = self.fps
+        npig = tps + self.fns
 
-                for i in range(nd-1, 0, -1):
-                    if pr[i] > pr[i-1]:
-                        pr[i-1] = pr[i]
+#       npig = np.count_nonzero(gtIg==0 )
+#       tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
+#       fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
-                inds = np.searchsorted(rc, p.recThrs, side='left')
-                try:
-                    for ri, pi in enumerate(inds):
-                        q[ri] = pr[pi]
-                        ss[ri] = dtScoresSorted[pi]
-                except:
-                    pass
-                precision[t,:,a,m] = np.array(q)
-                scores[t,:,a,m] = np.array(ss)
+#         tp_sum = np.cumsum(tps, axis=0).astype(dtype=np.float)
+#         fp_sum = np.cumsum(fps, axis=0).astype(dtype=np.float)
+        
+#       GET RID OF FOR LOOP
+        for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
+            tp = np.array(tp)
+            fp = np.array(fp)
+            nd = len(tp)
+            rc = tp / npig
+            pr = tp / (fp+tp+np.spacing(1)) #np.spacing adds tiny value
+            q  = np.zeros((R,))
+            ss = np.zeros((R,))
+
+            if nd:
+                recall[t,a,m] = rc[-1]
+            else:
+                recall[t,a,m] = 0
+
+            # numpy is slow without cython optimization for accessing elements
+            # use python array gets significant speed improvement
+            pr = pr.tolist(); q = q.tolist()
+
+            for i in range(nd-1, 0, -1):
+                if pr[i] > pr[i-1]:
+                    pr[i-1] = pr[i]
+
+            inds = np.searchsorted(rc, p.recThrs, side='left')
+            try:
+                for ri, pi in enumerate(inds):
+                    q[ri] = pr[pi]
+                    ss[ri] = dtScoresSorted[pi]
+            except:
+                pass
+            precision[t,:,a,m] = np.array(q)
+            scores[t,:,a,m] = np.array(ss)
                     
         self.eval = {
             'params': p,
