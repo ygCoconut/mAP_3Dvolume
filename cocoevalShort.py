@@ -67,6 +67,7 @@ class YTVOSeval:
         if not iouType:
             print('iouType not specified. use default iouType segm')
         num_rows = ID_map.shape[0]
+        self.ID_map = ID_map
         self.cocoGt = ID_map[:,:2]    # ground truth COCO API
         self.cocoDt = ID_map[:,3:].reshape((num_rows, -1, 3)) # detections COCO API
         
@@ -89,17 +90,148 @@ class YTVOSeval:
     
     def get_tfpn(self):
         """
-        For each instance, we need the true and false positives at each score threshold.
+        For each instance, we need the number of true positives, false positives and false negatives
+        at each IoU threshold.
+        """        
+        T = len(self.params.iouThrs)
+        D = self.cocoDt.shape[0]
         
-        """
-        pass
+        self.fps = np.zeros((T, D))
+        self.fns = np.zeros_like(self.fps)
+        self.tps = np.zeros_like(self.fps)
         
+        # masks to isolate True values
+        fps_mask = self.cocoGt[:,0] == 0 #fps have nonzero IoUs for all the ranges, TODO: add dim for range
+        fns_mask = self.ID_map[:,3] == 0
+        tps_mask = ~(fps_mask + fns_mask)
+        
+        th = self.params.iouThrs.repeat(D).reshape((T, -1)) #get same length as ious
+        self.tps = (self.ious[:,0]*tps_mask > th) #fps have nonzero IoUs for all the ranges, TODO: add dim for range
+        self.fps = fps_mask.repeat(T).reshape((-1, T)).T
+        self.fns = fns_mask.repeat(T).reshape((-1, T)).T + ~(self.tps + self.fps)
+
     def accumulate(self, p = None):
         '''
         Accumulate per image evaluation results and store the result in self.eval
         :param p: input params for evaluation
         :return: None
         '''
+
+#         Option B
+        print('Accumulating evaluation results...')
+        tic = time.time()
+#         if not self.evalImgs:
+#             print('Please run evaluate() first')
+        # allows input customized parameters
+        if p is None:
+            p = self.params
+        p.catIds = p.catIds if p.useCats == 1 else [-1]
+        T           = len(p.iouThrs)
+        R           = len(p.recThrs)
+        K           = len(p.catIds) if p.useCats else 1
+        A           = len(p.areaRng)
+        M           = len(p.maxDets)
+        precision   = -np.ones((T,R,K,A,M)) # -1 for the precision of absent categories
+        recall      = -np.ones((T,K,A,M))
+        scores      = -np.ones((T,R,K,A,M))
+        
+        
+        # create dictionary for future indexing
+        _pe = self._paramsEval
+        catIds = _pe.catIds if _pe.useCats else [-1]
+        setK = set(catIds)
+        setA = set(map(tuple, _pe.areaRng))
+        setM = set(_pe.maxDets)
+        setI = set(_pe.vidIds)
+        # get inds to evaluate
+        k_list = [n for n, k in enumerate(p.catIds)  if k in setK]
+        m_list = [m for n, m in enumerate(p.maxDets) if m in setM]
+        a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
+        i_list = [n for n, i in enumerate(p.vidIds)  if i in setI]
+        I0 = len(_pe.vidIds)
+        A0 = len(_pe.areaRng)
+        # retrieve E at each category, area range, and max number of detections
+        for k, k0 in enumerate(k_list):
+            Nk = k0*A0*I0
+            for a, a0 in enumerate(a_list):
+                Na = a0*I0
+                for m, maxDet in enumerate(m_list):
+#                     E = [self.evalImgs[Nk + Na + i] for i in i_list]
+#                     E = [e for e in E if not e is None]
+#                     if len(E) == 0:
+#                         continue
+                    
+                    dtScores = self.scores
+
+                    # different sorting method generates slightly different results.
+                    # mergesort is used to be consistent as Matlab implementation.
+                    inds = np.argsort(-dtScores, kind='mergesort')
+                    dtScoresSorted = dtScores[inds]
+
+                    # Get fp, fn and tp
+                    self.get_tfpn()
+
+                    tps = self.tps
+                    fps = self.fps
+                    npig = tps + self.fns
+                    
+#                     dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
+
+#                     # different sorting method generates slightly different results.
+#                     # mergesort is used to be consistent as Matlab implementation.
+#                     inds = np.argsort(-dtScores, kind='mergesort')
+#                     dtScoresSorted = dtScores[inds]
+
+#                     dtm  = np.concatenate([e['dtMatches'][:,0:maxDet] for e in E], axis=1)[:,inds]
+#                     dtIg = np.concatenate([e['dtIgnore'][:,0:maxDet]  for e in E], axis=1)[:,inds]
+#                     gtIg = np.concatenate([e['gtIgnore'] for e in E])
+#                     npig = np.count_nonzero(gtIg==0 )
+#                     if npig == 0:
+#                         continue
+#                     tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
+#                     fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
+
+                    tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
+                    fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
+                    
+#                     import pdb; pdb.set_trace()        
+                    
+                    for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
+                        tp = np.array(tp)
+                        fp = np.array(fp)
+                        nd = len(tp)
+                        rc = tp / npig
+                        pr = tp / (fp+tp+np.spacing(1))
+                        q  = np.zeros((R,))
+                        ss = np.zeros((R,))
+
+                        if nd:
+                            recall[t,k,a,m] = rc[-1]
+                        else:
+                            recall[t,k,a,m] = 0
+
+                        # numpy is slow without cython optimization for accessing elements
+                        # use python array gets significant speed improvement
+                        pr = pr.tolist(); q = q.tolist()
+
+                        for i in range(nd-1, 0, -1):
+                            if pr[i] > pr[i-1]:
+                                pr[i-1] = pr[i]
+
+                        inds = np.searchsorted(rc, p.recThrs, side='left')
+                        try:
+                            for ri, pi in enumerate(inds):
+                                q[ri] = pr[pi]
+                                ss[ri] = dtScoresSorted[pi]
+                        except:
+                            pass
+                        precision[t,:,k,a,m] = np.array(q)
+                        scores[t,:,k,a,m] = np.array(ss)
+                        
+        
+        """
+        Option A
+
         print('Accumulating evaluation results...')
         tic = time.time()
 
@@ -112,7 +244,7 @@ class YTVOSeval:
         precision   = -np.ones((T,R,A,M)) # -1 for the precision of absent categories
         recall      = -np.ones((T,A,M))
         scores      = self.scores ##### Calculated beforehand
-
+        
         # create dictionary for future indexing
         _pe = self._paramsEval
         setA = set(map(tuple, _pe.areaRng))
@@ -121,10 +253,7 @@ class YTVOSeval:
         a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
         A0 = len(_pe.areaRng)
         
-        import pdb; pdb.set_trace()
-        
-        
-        
+
 #         GET RID OF FOR LOOP
 #       dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E]) 
         
@@ -134,8 +263,10 @@ class YTVOSeval:
         # mergesort is used to be consistent as Matlab implementation.
         inds = np.argsort(-dtScores, kind='mergesort')
         dtScoresSorted = dtScores[inds]
+        
+        # Get fp, fn and tp
+        self.get_tfpn()
 
-#       ADD ELEMENTS HERE!
         tps = self.tps
         fps = self.fps
         npig = tps + self.fns
@@ -144,8 +275,8 @@ class YTVOSeval:
 #       tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
 #       fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
-#         tp_sum = np.cumsum(tps, axis=0).astype(dtype=np.float)
-#         fp_sum = np.cumsum(fps, axis=0).astype(dtype=np.float)
+        tp_sum = np.cumsum(tps, axis=0).astype(dtype=np.float)
+        fp_sum = np.cumsum(fps, axis=0).astype(dtype=np.float)
         
 #       GET RID OF FOR LOOP
         for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
@@ -158,9 +289,11 @@ class YTVOSeval:
             ss = np.zeros((R,))
 
             if nd:
-                recall[t,a,m] = rc[-1]
+#                 recall[t,a,m] = rc[-1]
+                recall[t] = rc
             else:
-                recall[t,a,m] = 0
+#                 recall[t,a,m] = 0
+                recall[t] = 0
 
             # numpy is slow without cython optimization for accessing elements
             # use python array gets significant speed improvement
@@ -177,12 +310,17 @@ class YTVOSeval:
                     ss[ri] = dtScoresSorted[pi]
             except:
                 pass
-            precision[t,:,a,m] = np.array(q)
-            scores[t,:,a,m] = np.array(ss)
-                    
+#             precision[t,:,a,m] = np.array(q)
+#             scores[t,:,a,m] = np.array(ss)
+
+            precision[t,:] = np.array(q)
+            scores[t,:] = np.array(ss)
+        """
+        
         self.eval = {
             'params': p,
             'counts': [T, R, A, M],
+#             'counts': [T, R, M],
             'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'precision': precision,
             'recall':   recall,
@@ -206,6 +344,7 @@ class YTVOSeval:
 
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
             mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
+            
             if ap == 1:
                 # dimension of precision: [TxRxKxAxM]
                 s = self.eval['precision']
@@ -213,22 +352,23 @@ class YTVOSeval:
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind,mind] #took out cat dim
-#                 s = s[:,:,:,aind,mind]
+#                 s = s[:,:,aind,mind] #took out cat dim
+                s = s[:,:,:,aind,mind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind,mind]# took out cat dim
-#                 s = s[:,:,aind,mind]
+#                 s = s[:,:,aind,mind]# took out cat dim
+                s = s[:,:,aind,mind]
             if len(s[s>-1])==0:
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s>-1])
             print(iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s))
             return mean_s
+        
         def _summarizeDets():
             stats = np.zeros((12,))
             stats[0] = _summarize(1)
