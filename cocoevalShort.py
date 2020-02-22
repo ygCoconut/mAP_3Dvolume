@@ -72,7 +72,9 @@ class YTVOSeval:
         self.cocoDt = ID_map[:,3:].reshape((num_rows, -1, 3)) # detections COCO API
         
         self.ious = self.cocoDt[:,:,-1] # contains [all, large, medium, small]
-        self.scores = ID_map[:,2]
+        import pdb; pdb.set_trace()
+#         self.scores = ID_map[:,2] if 0.0 <= number <= 1.0 else ID_map[:,2]/255.0
+        self.scores = ID_map[:,2]/255.0
         
 #         self.fps = np.zeros(self.cocoDt.shape[1])
 #         self.fns = np.zeros_like(self.fps)
@@ -81,9 +83,9 @@ class YTVOSeval:
 #         self.fns[0] = np.count_nonzero(ID_map[:,3] == 0)
 #         self.tps[0] = num_rows - self.fns - self.fps
         
-        self.fps = np.count_nonzero(self.cocoGt[:,0] == 0) #trick to count zero values
-        self.fns = np.count_nonzero(ID_map[:,3] == 0)
-        self.tps = num_rows - self.fns - self.fps
+#         self.fps = np.count_nonzero(self.cocoGt[:,0] == 0) #trick to count zero values
+#         self.fns = np.count_nonzero(ID_map[:,3] == 0)
+#         self.tps = num_rows - self.fns - self.fps
         
         self.params = Params(iouType=iouType)
         self._paramsEval = copy.deepcopy(self.params) # needed ?
@@ -194,7 +196,7 @@ class YTVOSeval:
                     tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
                     fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
                     
-#                     import pdb; pdb.set_trace()        
+                    import pdb; pdb.set_trace()        
                     
                     for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
                         tp = np.array(tp)
@@ -228,98 +230,9 @@ class YTVOSeval:
                         precision[t,:,k,a,m] = np.array(q)
                         scores[t,:,k,a,m] = np.array(ss)
                         
-        
-        """
-        Option A
-
-        print('Accumulating evaluation results...')
-        tic = time.time()
-
-        if p is None:
-            p = self.params
-        T           = len(p.iouThrs)
-        R           = len(p.recThrs)
-        A           = len(p.areaRng)
-        M           = len(p.maxDets)
-        precision   = -np.ones((T,R,A,M)) # -1 for the precision of absent categories
-        recall      = -np.ones((T,A,M))
-        scores      = self.scores ##### Calculated beforehand
-        
-        # create dictionary for future indexing
-        _pe = self._paramsEval
-        setA = set(map(tuple, _pe.areaRng))
-        setM = set(_pe.maxDets)
-        # get inds to evaluate
-        a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
-        A0 = len(_pe.areaRng)
-        
-
-#         GET RID OF FOR LOOP
-#       dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E]) 
-        
-        dtScores = self.scores
-
-        # different sorting method generates slightly different results.
-        # mergesort is used to be consistent as Matlab implementation.
-        inds = np.argsort(-dtScores, kind='mergesort')
-        dtScoresSorted = dtScores[inds]
-        
-        # Get fp, fn and tp
-        self.get_tfpn()
-
-        tps = self.tps
-        fps = self.fps
-        npig = tps + self.fns
-
-#       npig = np.count_nonzero(gtIg==0 )
-#       tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
-#       fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
-
-        tp_sum = np.cumsum(tps, axis=0).astype(dtype=np.float)
-        fp_sum = np.cumsum(fps, axis=0).astype(dtype=np.float)
-        
-#       GET RID OF FOR LOOP
-        for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
-            tp = np.array(tp)
-            fp = np.array(fp)
-            nd = len(tp)
-            rc = tp / npig
-            pr = tp / (fp+tp+np.spacing(1)) #np.spacing adds tiny value
-            q  = np.zeros((R,))
-            ss = np.zeros((R,))
-
-            if nd:
-#                 recall[t,a,m] = rc[-1]
-                recall[t] = rc
-            else:
-#                 recall[t,a,m] = 0
-                recall[t] = 0
-
-            # numpy is slow without cython optimization for accessing elements
-            # use python array gets significant speed improvement
-            pr = pr.tolist(); q = q.tolist()
-
-            for i in range(nd-1, 0, -1):
-                if pr[i] > pr[i-1]:
-                    pr[i-1] = pr[i]
-
-            inds = np.searchsorted(rc, p.recThrs, side='left')
-            try:
-                for ri, pi in enumerate(inds):
-                    q[ri] = pr[pi]
-                    ss[ri] = dtScoresSorted[pi]
-            except:
-                pass
-#             precision[t,:,a,m] = np.array(q)
-#             scores[t,:,a,m] = np.array(ss)
-
-            precision[t,:] = np.array(q)
-            scores[t,:] = np.array(ss)
-        """
-        
         self.eval = {
             'params': p,
-            'counts': [T, R, A, M],
+            'counts': [T, R, K, A, M],
 #             'counts': [T, R, M],
             'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'precision': precision,

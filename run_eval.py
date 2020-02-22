@@ -197,8 +197,8 @@ def heatmap_to_score(pred, heatmap, channel=-1):
     # relabel bincount(minlen = max_len) with ids
     counts = np.bincount(pred_view, minlength=pred_len)
     sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
-    return np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
-
+    out = np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
+    return out
     
 def obtain_id_map(gt, pred, scores, args):
     """create complete mapping of ids for gt and pred pairs:"""
@@ -230,7 +230,6 @@ def main():
     print('\n\t-Load data')
     args = get_args()
     gt_seg, pred_seg, pred_score = load_data(args)
-
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\n\t-Obtain ID map and bounding box ..')
@@ -242,7 +241,7 @@ def main():
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
         'ground truth \t| HEATMAP |\t\t pred all \t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
         'ID, \tSIZE, \t|  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*116
-        rowformat = '%d\t\t%4d\t\t%d\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
+        rowformat = '%d\t\t%4d\t\t%f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
         np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
 
 
