@@ -72,9 +72,8 @@ class YTVOSeval:
         self.cocoDt = ID_map[:,3:].reshape((num_rows, -1, 3)) # detections COCO API
         
         self.ious = self.cocoDt[:,:,-1] # contains [all, large, medium, small]
-        import pdb; pdb.set_trace()
 #         self.scores = ID_map[:,2] if 0.0 <= number <= 1.0 else ID_map[:,2]/255.0
-        self.scores = ID_map[:,2]/255.0
+        self.scores = ID_map[:,2]#/255.0
         
 #         self.fps = np.zeros(self.cocoDt.shape[1])
 #         self.fns = np.zeros_like(self.fps)
@@ -86,10 +85,19 @@ class YTVOSeval:
 #         self.fps = np.count_nonzero(self.cocoGt[:,0] == 0) #trick to count zero values
 #         self.fns = np.count_nonzero(ID_map[:,3] == 0)
 #         self.tps = num_rows - self.fns - self.fps
-        
-        self.params = Params(iouType=iouType)
-        self._paramsEval = copy.deepcopy(self.params) # needed ?
-    
+   
+        self.params   = {}                  # evaluation parameters
+        self.eval     = {}                  # accumulated evaluation results
+        self.params = Params(iouType=iouType) # parameters
+        self._paramsEval = {}               # parameters for evaluation
+        self._paramsEval = copy.deepcopy(self.params)
+        self.stats = []                     # result summarization
+#         self.ious = {}                      # ious between all gts and dts
+#         if not cocoGt is None:
+        self.params.vidIds = [0]
+        self.params.catIds = [1]
+            
+            
     def get_tfpn(self):
         """
         For each instance, we need the number of true positives, false positives and false negatives
@@ -107,11 +115,32 @@ class YTVOSeval:
         fns_mask = self.ID_map[:,3] == 0
         tps_mask = ~(fps_mask + fns_mask)
         
+        
         th = self.params.iouThrs.repeat(D).reshape((T, -1)) #get same length as ious
-        self.tps = (self.ious[:,0]*tps_mask > th) #fps have nonzero IoUs for all the ranges, TODO: add dim for range
-        self.fps = fps_mask.repeat(T).reshape((-1, T)).T
-        self.fns = fns_mask.repeat(T).reshape((-1, T)).T + ~(self.tps + self.fps)
-
+        tps = (self.ious[:,0]*tps_mask > th) #fps have nonzero IoUs for all the ranges, TODO: add dim for range
+        fps = fps_mask.repeat(T).reshape((-1, T)).T
+        fns = fns_mask.repeat(T).reshape((-1, T)).T + ~(tps + fps)
+        
+        ################
+        self.scores = self.ID_map[:,2][tps_mask]
+        dtScores = self.scores
+        inds = np.argsort(-dtScores, kind='mergesort')
+        self.scores = -dtScores[inds]/255.0
+        dtinds = np.argsort(-self.scores/255, kind='mergesort')
+        
+        
+        dtScores = self.ious[tps_mask]
+        # different sorting method generates slightly different results.
+        # mergesort is used to be consistent as Matlab implementation.
+        inds = np.argsort(-dtScores, kind='mergesort')
+        self.scores = dtScores[inds]
+        
+        import pdb; pdb.set_trace()
+        self.tps = tps[:,inds][:,tps_mask]
+        self.fps = ~tps[:,inds][:,tps_mask]
+        self.fns = fns[:,fns_mask]
+        
+        
     def accumulate(self, p = None):
         '''
         Accumulate per image evaluation results and store the result in self.eval
@@ -137,9 +166,12 @@ class YTVOSeval:
         recall      = -np.ones((T,K,A,M))
         scores      = -np.ones((T,R,K,A,M))
         
-        
         # create dictionary for future indexing
-        _pe = self._paramsEval
+        _pe = self.params
+#         _pe = self._paramsEval
+#         _pe.useCats = 1
+
+#         catIds = [1]
         catIds = _pe.catIds if _pe.useCats else [-1]
         setK = set(catIds)
         setA = set(map(tuple, _pe.areaRng))
@@ -153,6 +185,7 @@ class YTVOSeval:
         I0 = len(_pe.vidIds)
         A0 = len(_pe.areaRng)
         # retrieve E at each category, area range, and max number of detections
+        
         for k, k0 in enumerate(k_list):
             Nk = k0*A0*I0
             for a, a0 in enumerate(a_list):
@@ -175,7 +208,9 @@ class YTVOSeval:
 
                     tps = self.tps
                     fps = self.fps
-                    npig = tps + self.fns
+                    npig = tps.shape[1] + self.fns.shape[1]
+#                     npig = np.sum(tps +self.fns)/tps.shape[0]
+#                     npig = 38
                     
 #                     dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
 

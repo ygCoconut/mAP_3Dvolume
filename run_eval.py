@@ -260,6 +260,8 @@ def main():
         #These two will be written into this file here.
         ytvosEval.accumulate()
         ytvosEval.summarize()
+        
+    else: print("make sure the flags do_eval and get_idmap are set !")
 
         
 
