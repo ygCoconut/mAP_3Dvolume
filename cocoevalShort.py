@@ -73,7 +73,6 @@ class YTVOSeval:
         
         self.ious = self.cocoDt[:,:,-1] # contains [all, large, medium, small]
 #         self.scores = ID_map[:,2] if 0.0 <= number <= 1.0 else ID_map[:,2]/255.0
-        self.scores = ID_map[:,2]#/255.0
         
 #         self.fps = np.zeros(self.cocoDt.shape[1])
 #         self.fns = np.zeros_like(self.fps)
@@ -121,25 +120,19 @@ class YTVOSeval:
         fps = fps_mask.repeat(T).reshape((-1, T)).T
         fns = fns_mask.repeat(T).reshape((-1, T)).T + ~(tps + fps)
         
-        ################
-        self.scores = self.ID_map[:,2][tps_mask]
-        dtScores = self.scores
-        inds = np.argsort(-dtScores, kind='mergesort')
-        self.scores = -dtScores[inds]/255.0
-        dtinds = np.argsort(-self.scores/255, kind='mergesort')
-        
-        
-        dtScores = self.ious[tps_mask]
         # different sorting method generates slightly different results.
         # mergesort is used to be consistent as Matlab implementation.
-        inds = np.argsort(-dtScores, kind='mergesort')
-        self.scores = dtScores[inds]
+        scores = self.ID_map[:,2][tps_mask]#/255.0
         
-        import pdb; pdb.set_trace()
-        self.tps = tps[:,inds][:,tps_mask]
-        self.fps = ~tps[:,inds][:,tps_mask]
+        inds = np.argsort(-scores, kind='mergesort')
+        self.scores = scores[inds]
+        
+        #### depends on previously correct indexing.
+        self.tps = tps[:,tps_mask][:,inds]
+        self.fps = ~tps[:,tps_mask][:,inds]
         self.fns = fns[:,fns_mask]
         
+        self.inds = inds
         
     def accumulate(self, p = None):
         '''
@@ -148,7 +141,6 @@ class YTVOSeval:
         :return: None
         '''
 
-#         Option B
         print('Accumulating evaluation results...')
         tic = time.time()
 #         if not self.evalImgs:
@@ -196,19 +188,25 @@ class YTVOSeval:
 #                     if len(E) == 0:
 #                         continue
                     
-                    dtScores = self.scores
 
-                    # different sorting method generates slightly different results.
-                    # mergesort is used to be consistent as Matlab implementation.
-                    inds = np.argsort(-dtScores, kind='mergesort')
-                    dtScoresSorted = dtScores[inds]
 
                     # Get fp, fn and tp
                     self.get_tfpn()
 
+            
+            
+#                     dtScores = self.scores
+                    # different sorting method generates slightly different results.
+                    # mergesort is used to be consistent as Matlab implementation.
+#                     inds = np.argsort(-dtScores, kind='mergesort')
+                    dtScoresSorted = self.scores
+                    
                     tps = self.tps
                     fps = self.fps
                     npig = tps.shape[1] + self.fns.shape[1]
+                    
+                    
+                    # Sort tp, fp and scores in accuracy order
 #                     npig = np.sum(tps +self.fns)/tps.shape[0]
 #                     npig = 38
                     

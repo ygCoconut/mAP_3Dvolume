@@ -193,7 +193,6 @@ def heatmap_to_score(pred, heatmap, channel=-1):
     pred_id = np.unique(pred)
     pred_view = pred.ravel()
     pred_len = pred_id.max()+1
-        
     # relabel bincount(minlen = max_len) with ids
     counts = np.bincount(pred_view, minlength=pred_len)
     sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
@@ -209,7 +208,7 @@ def obtain_id_map(gt, pred, scores, args):
     # 2. get scores of each instance
     
     # 3. Create look-up table and insert scores into map
-    rl = np.zeros(int(np.max(scores[:,0])+1), int)
+    rl = np.zeros(int(np.max(scores[:,0])+1), float)
     rl[scores[:,0].astype(int)] = scores[:,1]
     full_map = np.hstack([uiuc, rl[pred_id_table[:,0].astype(int), np.newaxis], pred_id_table])
     return full_map
@@ -239,8 +238,8 @@ def main():
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
     if args.get_idmap == 'True':
         header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
-        'ground truth \t| HEATMAP |\t\t pred all \t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
-        'ID, \tSIZE, \t|  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*116
+        'ground truth \t|\t HEATMAP |\t\t pred all \t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
+        'ID, \tSIZE, \t|\t  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*116
         rowformat = '%d\t\t%4d\t\t%f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
         np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
 
