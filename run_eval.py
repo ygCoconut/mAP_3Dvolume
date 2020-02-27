@@ -124,21 +124,31 @@ def get_bb3d(seg,do_count=False, uid=None):
 
     return out[uid]
 
-def seg_iou3d(seg1, seg2, args, return_extra=False):
+def seg_iou3d(seg1, seg2, th, uid=None, return_extra=False):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (gt,pred)
     # return: id_1,id_2,size_1,size_2,iou
     ui,uc = np.unique(seg1,return_counts=True)
     uc=uc[ui>0];ui=ui[ui>0]
+    
     ui2,uc2 = np.unique(seg2,return_counts=True)
     uc2=uc2[ui2>0];ui2=ui2[ui2>0]
 
     bbs = get_bb3d(seg1,uid=ui)[:,1:]
     
-    iou_table = np.zeros((len(ui), 4, 3), float) # contains iou_all, iou_small, iou_medium, iou_large
-    th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2) # [All, Small, Medium, Large]
+    if uid is None:
+        uid = ui
+        uic = uc
+    else:
+        uc_rl = np.zeros(ui.max()+1,int)
+        uc_rl[ui] = uc
+        uic = uc_rl[uid]
+            
+    
+    iou_table = np.zeros((len(uid), 4, 3), float) # contains iou_all, iou_small, iou_medium, iou_large
+    #th # [All, Small, Medium, Large]
 
-    for j,i in enumerate(ui):
+    for j,i in enumerate(uid):
         # Find intersection of pred and gt instance inside bbox, call intersection ui3
         bb= bbs[j]
         ui3,uc3=np.unique(seg2[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(seg1[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
@@ -150,7 +160,7 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
         assert uc2_subset.shape == uc3.shape
 
         #IoUs = A + B - C = uc[j] + uc2_subset - uc3
-        IoUs = uc3.astype(float)/(uc[j] + uc2_subset - uc3) #all possible iou combinations of bbox ids are contained
+        IoUs = uc3.astype(float)/(uic[j] + uc2_subset - uc3) #all possible iou combinations of bbox ids are contained
         
          # false negatives = No IoU found, empty array
         FN = False
@@ -161,7 +171,7 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
         
         #filter ious by range; 1 list with 4*3=12 columns
         for r in range(4): # fill up all, then s, m, l
-            if uc[j]>th[r,0] and uc[j]<th[r,1] and not FN: 
+            if uic[j]>th[r,0] and uic[j]<th[r,1] and not FN: 
                 mask = (uc2_subset>th[r,0]) * (uc2_subset<th[r,1])
                 if not np.all(mask) == False:
                     idx_iou_max = np.argmax(IoUs*mask)
@@ -180,7 +190,7 @@ def seg_iou3d(seg1, seg2, args, return_extra=False):
 
     # get gt ui and uc with the same size as full_map
     gt_id_sz = np.zeros((full_map.shape[0], 2))
-    gt_id_sz[:ui.size] = np.vstack([ui, uc]).T
+    gt_id_sz[:uid.size] = np.vstack([uid, uic]).T
 
     return full_map, gt_id_sz
 
@@ -203,17 +213,18 @@ def obtain_id_map(gt, pred, scores, args):
     """create complete mapping of ids for gt and pred pairs:"""
     # 1. get matched pair of ids
     
-    predids_map, uiuc = seg_iou3d(gt, pred, args)
-    pred_id_table = predids_map.reshape(-1, 12)
+    #predids_map, uiuc = seg_iou3d(gt, pred, args)      
+    th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
+    predids_map, uiuc = seg_iou3d(gt, pred, th)
+    pred_id_table = predids_map.reshape(-1, 12)           
     # 2. get scores of each instance
     
     # 3. Create look-up table and insert scores into map
     rl = np.zeros(int(np.max(scores[:,0])+1), float)
     rl[scores[:,0].astype(int)] = scores[:,1]
-    full_map = np.hstack([uiuc, rl[pred_id_table[:,0].astype(int), np.newaxis], pred_id_table])
+    full_map = np.hstack([uiuc, rl[pred_id_table[:,0].astype(int), np.newaxis], pred_id_table])    
     return full_map
-
-
+                     
 def main():
     """ 
     Convert the grount truth segmentation and the corresponding predictions to a coco dataset
