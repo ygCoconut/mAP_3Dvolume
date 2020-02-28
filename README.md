@@ -1,14 +1,12 @@
 # mAP_3Dvolume
 
 ## Introduction:
-This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. 
-
-Our tool relates on this fork of the COCO API: https://github.com/youtubevos/cocoapi
-Please make sure to use our own re-fork, https://github.com/ygCoconut/cocoapi/ if you intend to evaluate the segments by size.
+This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. This tool uses the cocoapi approach for mAP evaluation. The master branch runs super fast. If you wish to test out the master branch, you can run the legacy branch (https://github.com/ygCoconut/mAP_3Dvolume/tree/legacy). 
 
 ## Important notes:
 - The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.
 - The tool assumes that the z-axis is the first axis, then x then y (i.e. gt.shape = (z, x, y), where z represents the slices of your stack). This should not matter in terms of map score though if you load a 3D array.
+- There is a variety of flags that you can use. The most important flags are probably -ph and -ps. Choose -ps if you already computed the scores, otherwise you can use -ph to feed the tool with your output layer heatmap.
 - In our model output, each voxel has 3 score/affinity values. For this reason, the average instance score is calculated in a way that might not be compatible with your model output. Feel free to adapt the score function.
 
 ## Requirements:
@@ -19,20 +17,7 @@ pip install requirements.txt
 ```
 
 
-- Then, go through https://github.com/ygCoconut/cocoapi/ to install the pycocotools:
-```
-git clone https://github.com/youtubevos/cocoapi.git
-cd cocoapi/PythonAPI
-# To compile and install locally 
-python setup.py build_ext --inplace
-# To install library to Python site-packages 
-python setup.py build_ext install
-```
-
-
-- The master branch is running with python 2.7 but can easily be adapted to run with python 3 if needed. Please note that in python 3 you need to convert the 'counts' key of the mask.encode() output from bytes to string in order to avoid the issue described here:
-https://github.com/cocodataset/cocoapi/issues/70
-
+- The master branch is running with python 2.7 as a default, but can easily be adapted to run with python 3 if needed.
 
 ## How it works:
 Run the following command to use the tool:
@@ -43,8 +28,10 @@ The following steps will be executed by the script:
 1) Load the following 3D arrays:
 - GT segmentation volume
 - prediction segmentation volume
-- affinity matrix / sigmoid output matrix in order to get the prediciton score of each voxel
+- model prediction matrix / scores matrix in order to get the prediciton score of each voxel
 
-2) Create the necessary json files for the COCO API
+2) Create the necessary tables to compute the mAP:
+- iou_p.txt contains the different prediction ids, the prediction scores, and their matched ground trught (gt) ids. Each prediciton is matched with gt ids from 4 different size ranges (based on number of instance voxels). Each of these ranges contains the matched  gt id, its size and the intersection over union (iou) score. 
+- iou_fn.txt contains false negatives, as well as instances that have been matched with a worse iou than another instance.  
 
-3) Evaluate the model performance with mAP by using the COCO API fork of youtubevos
+3) Evaluate the model performance with mAP by using the 3D optimized evaluation script  and the 2 tables mentioned above.
