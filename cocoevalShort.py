@@ -7,7 +7,7 @@ from collections import defaultdict
 # from . import mask as maskUtils
 import copy
 
-class YTVOSeval:
+class V3Deval:
     # Interface for evaluating video instance segmentation on the YouTubeVIS dataset.
     #
     # The usage for YTVOSeval is as follows:

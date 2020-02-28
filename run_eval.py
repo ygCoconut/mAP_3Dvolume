@@ -2,13 +2,11 @@
 # coding: utf-8
 
 """
-# Install cocoapi for video instance segmentation
-https://github.com/youtubevos/cocoapi.git
-This script allows you to obtain .json files in coco format from the ground truth instance segmentation array and the resulting instance prediction. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True, which should be the case by default. 
+This script allows you to obtain gt instance and prediction instance matches for the 3D mAP model evaluation. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True (default).
 """
 import numpy as np
 
-from cocoevalShort import YTVOSeval
+from cocoevalShort import V3Deval
 
 import json
 import h5py
@@ -261,16 +259,16 @@ def main():
     if args.do_eval == 'True' and args.get_idmap == 'True':
         print('start evaluation')        
         #Evaluation
-        ytvosEval = YTVOSeval(p_map, fn_map, 'segm') # 'bbox' or 'segm'
+        v3dEval = V3Deval(p_map, fn_map, 'segm') # 'bbox' or 'segm'
         # Default thresholds: [All, Small, Medium, Large] = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]        
         #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        #ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]
+        #v3dEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]
         th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
-        ytvosEval.params.areaRng = th
+        v3dEval.params.areaRng = th
         
         #These two will be written into this file here.
-        ytvosEval.accumulate()
-        ytvosEval.summarize()
+        v3dEval.accumulate()
+        v3dEval.summarize()
         
     else: print("make sure the flags do_eval and get_idmap are set !")
 
@@ -279,37 +277,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-
-################################################# DEBUG
-    if False:
-        
-        from pycocotools.coconut import YTVOS
-        from pycocotools.coconuteval import YTVOSeval
-        import numpy as np
-        import pickle
-        def save_dict(filename_, di_):
-            with open(filename_, 'wb') as f:
-                pickle.dump(di_, f)
-
-        def load_dict(filename_):
-            with open(filename_, 'rb') as f:
-                ret_di = pickle.load(f)
-            return ret_di
-        
-#         save_dict('gt.npy', coco_dict_gt)
-        
-        
-        coco_dict_gt = load_dict('gt.npy')
-        coco_list_pred= np.load('pred.npy', allow_pickle = True).tolist()
-        
-        
-        print('start evaluation')
-        ytvosGt = coco_dict_gt
-        ytvosDt = coco_list_pred
-
-        ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
-        #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
-        
-        ytvosEval.accumulate()
-        ytvosEval.summarize()
