@@ -77,6 +77,24 @@ def load_data(args):
 
     return gt_seg, pred_seg, pred_score
 
+def heatmap_to_score(pred, heatmap, channel=-1):
+    if heatmap.ndim>pred.ndim:
+        if channel != -1:
+            heatmap = heatmap[channel]
+        else:
+            heatmap = heatmap.mean(axis=0)
+
+    pred_id = np.unique(pred)
+    pred_view = pred.ravel()
+    pred_len = pred_id.max()+1
+    # relabel bincount(minlen = max_len) with ids
+    count_voxel = np.bincount(pred_view, minlength=pred_len)
+    count_score = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
+    score = count_score[pred_id]/count_voxel[pred_id]
+    if score.max()>1.1:#assume 0-255
+        score = score/255.
+    out = np.vstack([pred_id,score]).T 
+    return out
 
 ###### 2. Seg IoU ID map
 def get_bb3d(seg,do_count=False, uid=None):
@@ -126,15 +144,13 @@ def get_bb3d(seg,do_count=False, uid=None):
 
 def seg_iou3d(seg1, seg2, th, uid=None, return_extra=False):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
-    # (gt,pred)
+    # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
     ui,uc = np.unique(seg1,return_counts=True)
     uc=uc[ui>0];ui=ui[ui>0]
     
     ui2,uc2 = np.unique(seg2,return_counts=True)
     uc2=uc2[ui2>0];ui2=ui2[ui2>0]
-
-    bbs = get_bb3d(seg1,uid=ui)[:,1:]
     
     if uid is None:
         uid = ui
@@ -142,88 +158,68 @@ def seg_iou3d(seg1, seg2, th, uid=None, return_extra=False):
     else:
         uc_rl = np.zeros(ui.max()+1,int)
         uc_rl[ui] = uc
-        uic = uc_rl[uid]
-            
+        uic = uc_rl[uid]            
     
-    iou_table = np.zeros((len(uid), 4, 3), float) # contains iou_all, iou_small, iou_medium, iou_large
-    #th # [All, Small, Medium, Large]
+    bbs = get_bb3d(seg1,uid=uid)[:,1:]    
+    
+    p_stack = np.zeros((len(uid), 2+3*th.shape[0]), float)
+    p_stack[:,0] = uid
+    p_stack[:,1] = uic
 
+    
+    seg2_id = np.zeros(1+ui2.max(), int)
+    seg2_iou = np.zeros(1+ui2.max(), float)
     for j,i in enumerate(uid):
         # Find intersection of pred and gt instance inside bbox, call intersection ui3
         bb= bbs[j]
         ui3,uc3=np.unique(seg2[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(seg1[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
         uc3=uc3[ui3>0] # get intersection counts
-        ui3=ui3[ui3>0] # get intersection ids
-
-        # get count of all preds inside bbox
-        uc2_subset = uc2[np.isin(ui2,ui3)]
-        assert uc2_subset.shape == uc3.shape
-
-        #IoUs = A + B - C = uc[j] + uc2_subset - uc3
-        IoUs = uc3.astype(float)/(uic[j] + uc2_subset - uc3) #all possible iou combinations of bbox ids are contained
-        
-         # false negatives = No IoU found, empty array
-        FN = False
-        if IoUs.shape[0] < 1:
-            FN = True
+        ui3=ui3[ui3>0] # get intersection ids        
+        if len(ui3)>0:
+            # get count of all preds inside bbox (assume ui2,ui3 are of ascending order)
+            uc2_match = uc2[np.isin(ui2,ui3)]
+            #IoUs = A + B - C = uc[j] + uc2_subset - uc3
+            ious = uc3.astype(float)/(uic[j] + uc2_match - uc3) #all possible iou combinations of bbox ids are contained
             
-        
-        
-        #filter ious by range; 1 list with 4*3=12 columns
-        for r in range(4): # fill up all, then s, m, l
-            if uic[j]>th[r,0] and uic[j]<th[r,1] and not FN: 
-                mask = (uc2_subset>th[r,0]) * (uc2_subset<th[r,1])
-                if not np.all(mask) == False:
-                    idx_iou_max = np.argmax(IoUs*mask)
-                    iou_table[j,r,:] = [ ui3[idx_iou_max], uc2_subset[idx_iou_max], IoUs[idx_iou_max] ]
-
+            for r in range(th.shape[0]): # fill up all, then s, m, l
+                gid = (uc2_match>th[r,0])*(uc2_match<=th[r,1])
+                if sum(gid)>0: 
+                    idx_iou_max = np.argmax(ious*gid)
+                    p_stack[j,2+r*3:2+r*3+3] = [ ui3[idx_iou_max], uc2_match[idx_iou_max], ious[idx_iou_max] ]            
+            # update set2
+            seg2_todo = seg2_iou[ui3]<ious            
+            seg2_iou[ui3[seg2_todo]] = ious[seg2_todo]
+            seg2_id[ui3[seg2_todo]] = i
                 
-    # get false positives
-    false_positives = ui2[np.isin(ui2, iou_table[:,0,0], assume_unique=False, invert=True)]
-    fpc = uc2[np.isin(ui2, false_positives)]
-    fp_stack = np.zeros((len(false_positives), 4, 3),int)
-    #filter ious by range; 1 list with 4*3=12 columns
-    for r in range(4): # fill up all, then s, m, l
-        mask = (false_positives>th[r,0]) * (false_positives<th[r,1])
-        fp_stack[:,r,:] = np.vstack([false_positives*mask, fpc*mask, np.zeros_like(fpc) ]).T
-    full_map = np.vstack((iou_table, fp_stack))
-
-    # get gt ui and uc with the same size as full_map
-    gt_id_sz = np.zeros((full_map.shape[0], 2))
-    gt_id_sz[:uid.size] = np.vstack([uid, uic]).T
-
-    return full_map, gt_id_sz
-
-def heatmap_to_score(pred, heatmap, channel=-1):
-    if heatmap.ndim>pred.ndim:
-        if channel != -1:
-            heatmap = heatmap[channel]
-        else:
-            heatmap = heatmap.mean(axis=0)
-    pred_id = np.unique(pred)
-    pred_view = pred.ravel()
-    pred_len = pred_id.max()+1
-    # relabel bincount(minlen = max_len) with ids
-    counts = np.bincount(pred_view, minlength=pred_len)
-    sums = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
-    out = np.vstack([pred_id,(sums[pred_id]/counts[pred_id])]).T 
-    return out
+    # get the rest: false negative + dup
+    fn_gid = ui2[np.isin(ui2, p_stack[:,2], assume_unique=False, invert=True)]
+    fn_gic = uc2[np.isin(ui2, fn_gid)]
+    fn_iou = seg2_iou[fn_gid]
+    fn_pid = seg2_id[fn_gid]
+    fn_pic = np.hstack([uc[np.isin(ui, fn_pid)],np.zeros((fn_pid==0).sum())])
     
-def obtain_id_map(gt, pred, scores, args):
+    # add back duplicate
+    # instead of bookkeeping in the previous step, faster to redo them    
+    fn_stack = np.vstack([fn_pid, fn_pic, fn_gid, fn_gic,fn_iou]).T
+    
+    return p_stack, fn_stack
+
+   
+def obtain_id_map(gt, pred, scores, th):
     """create complete mapping of ids for gt and pred pairs:"""
-    # 1. get matched pair of ids
     
-    #predids_map, uiuc = seg_iou3d(gt, pred, args)      
-    th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
-    predids_map, uiuc = seg_iou3d(gt, pred, th)
-    pred_id_table = predids_map.reshape(-1, 12)           
-    # 2. get scores of each instance
-    
-    # 3. Create look-up table and insert scores into map
+    # 1. get matched pair of ids    
     rl = np.zeros(int(np.max(scores[:,0])+1), float)
     rl[scores[:,0].astype(int)] = scores[:,1]
-    full_map = np.hstack([uiuc, rl[pred_id_table[:,0].astype(int), np.newaxis], pred_id_table])    
-    return full_map
+    
+    # 1. sort the prediction by confidence
+    ui = np.unique(pred);ui=ui[ui>0]    
+    sid = np.argsort(-rl[ui])
+    
+    p_map, fn_map = seg_iou3d(pred, gt, th, uid=ui[sid])
+    # format: pid,pc,p_score, gid,gc,iou
+    scores_out = rl[ui[sid]].reshape(-1,1)
+    return np.hstack([p_map[:,:2], scores_out, p_map[:,2:]]), fn_map
                      
 def main():
     """ 
@@ -239,28 +235,33 @@ def main():
     start_time = int(round(time.time() * 1000))
     print('\n\t-Load data')
     args = get_args()
+    th = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
     gt_seg, pred_seg, pred_score = load_data(args)
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\n\t-Obtain ID map and bounding box ..')
-    id_map = obtain_id_map(gt_seg, pred_seg,pred_score, args)
+    p_map, fn_map = obtain_id_map(gt_seg, pred_seg, pred_score, th)
     
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
     if args.get_idmap == 'True':
-        header ='load: np.loadtxt(\'id_map_iou.txt\')\n\n' + \
-        'ground truth \t|\t HEATMAP |\t\t pred all \t\t|\t pred small \t\t|\t pred medium \t\t|\t pred large\n' + \
-        'ID, \tSIZE, \t|\t  SCORE  | ID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU,  \t|\tID, SIZE, \tIoU\n' + '-'*116
-        rowformat = '%d\t\t%4d\t\t%f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f\t\t%d\t%4d\t%1.4f'
-        np.savetxt('id_map_iou.txt', id_map, fmt=rowformat, header=header)
+        header ='load: np.loadtxt(\'p_map_iou.txt\')\n\n' + \
+        '\t\t\t prediction \t\t\t\t |\t\t gt all \t\t|\t gt small \t\t|\t gt medium \t\t|\t gt large\n' + \
+        'ID, \tSIZE, SCORE  | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU\n' + '-'*116
+        rowformat = '%d\t\t%4d\t\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'        
+        np.savetxt('iou_p.txt', p_map, fmt=rowformat, header=header)
 
-
+        header ='load: np.loadtxt(\'p_map_iou.txt\')\n\n' + \
+        '\t\t\t prediction \t\t |\t\t gt \t\t\n' + \
+        'ID, \tSIZE | ID, SIZE, \tIoU \n' + '-'*40
+        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f'
+        np.savetxt('iou_fn.txt', fn_map, fmt=rowformat, header=header)
+        
     ## 3. Evaluation script for 3D instance segmentation
     if args.do_eval == 'True' and args.get_idmap == 'True':
-        print('start evaluation')
-        
+        print('start evaluation')        
         #Evaluation
-        ytvosEval = YTVOSeval(id_map, 'segm') # 'bbox' or 'segm'
+        ytvosEval = YTVOSeval(p_map, fn_map, 'segm') # 'bbox' or 'segm'
         # Default thresholds: [All, Small, Medium, Large] = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]        
         #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
         #ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]

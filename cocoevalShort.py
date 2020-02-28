@@ -57,7 +57,7 @@ class YTVOSeval:
     # Data, paper, and tutorials available at:  http://mscoco.org/
     # Code written by Piotr Dollar and Tsung-Yi Lin, 2015.
     # Licensed under the Simplified BSD License [see coco/license.txt]
-    def __init__(self, ID_map, iouType='segm'):
+    def __init__(self, p_map, fn_map, iouType='segm'):
         '''
         Initialize CocoEval using coco APIs for gt and dt
         :param cocoGt: coco object with ground truth annotations
@@ -66,63 +66,58 @@ class YTVOSeval:
         '''
         if not iouType:
             print('iouType not specified. use default iouType segm')
-        self.cocoGt = ID_map[:,:2]    # ground truth COCO API
         # num_obj x {all, s, m ,l} x {id, size, IOU}
-        self.cocoDt = ID_map[:,3:].reshape((ID_map.shape[0], -1, 3)) # detections COCO API        
-        self.scores_by_id = np.zeros(int(self.cocoDt[:,0,0].max())+1,float)
-        self.scores_by_id[self.cocoDt[:,0,0].astype(int)] = ID_map[:,2]
-           
+        
+        self.cocoGt = p_map[:,3:].reshape(-1,4,3)    # ground truth COCO API        
+        self.cocoDt = p_map[:,:2] # detections COCO API                        
+        self.scores = p_map[:,2] # detections COCO API                        
+        self.fn_map = fn_map # false negative
+                
         self.params   = {}                  # evaluation parameters
         self.eval     = {}                  # accumulated evaluation results
         self.params = Params(iouType=iouType) # parameters
-        self._paramsEval = {}               # parameters for evaluation
-        self._paramsEval = copy.deepcopy(self.params)
-        self.stats = []                     # result summarization
-#         self.ious = {}                      # ious between all gts and dts
-#         if not cocoGt is None:
-        self.params.vidIds = [0]
-        self.params.catIds = [1]
-            
-    def get_dtm_duplicate_iou(self, pred_id, iou):
-        ui, uc = np.unique(pred_id, return_counts = True)
-        uc[ui==0] = 0
-        bid = uc>1
-        # remove all multiple-detection    
-        dup_id = np.in1d(pred_id,ui[bid])
-        for i in ui[bid]:
-            ind = np.where(pred_id==i)[0]
-            # add back the one with max iou
-            dup_id[ind[np.argmax(iou[ind])]] = False
-        return dup_id
+        self.stats = []                     # result summarization        
+        
+        self.D = self.cocoDt.shape[0]
+        self.T = len(self.params.iouThrs)
+        gid,gix = np.unique(np.hstack([self.fn_map[:,2],self.cocoGt[:,0,0]]), return_index=True)        
+        gic = np.hstack([self.fn_map[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
+        
+        self.gid = gid[gid>0].astype(int)
+        self.gic = gic
+        self.G = len(self.gid)
+        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious        
 
-    def get_tfpn(self, area_id):
+        
+    def get_dtm_by_area(self, area_id):
         """
         For each instance, we need the number of true positives, false positives and false negatives
         at each IoU threshold.
-        """        
+        """   
         
+        cocoGt = self.cocoGt[:,area_id]
         
-        dtm = self.cocoDt[:,area_id,0].astype(int)
-        dtm_id = np.argsort(-self.scores_by_id[dtm], kind='mergesort') # sort by detection score
-        dtm_bid = self.get_dtm_duplicate_iou(dtm[dtm_id], self.cocoDt[dtm_id,area_id,2]) # find dup
-        dtm_bid += (dtm[dtm_id]==0) # find id=0         
+        # gtIg: size self.G (include 0)
+        gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
+        gtIg_id = self.gid[gtIg]        
         
+        # if no match in the area range, add back best
+        match_id = cocoGt[:,0].astype(int)
+        match_iou = cocoGt[:,2]
+        match_iou[match_id==0] = self.cocoGt[match_id==0,0,2]
+        match_id[match_id==0] = self.cocoGt[match_id==0,0,0]
+                       
+        dtm = match_id*(match_iou>=self.th)        
+        # find detection outside the area range
+        dtIg = (dtm>0)*np.isin(dtm,gtIg_id).reshape(dtm.shape)
+        a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
+        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))        
         
-        dtm_bid += (self.cocoGt[:,1]>self.params.areaRng[area_id,1])+(self.cocoGt[:,1]<self.params.areaRng[area_id,0])
+        tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
+        fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
         
-        score = self.cocoDt[dtm_id,area_id,2][dtm_bid==0]
-        th = self.params.iouThrs.repeat(score.shape[0]).reshape((len(self.params.iouThrs), -1)) #get same length as ious
-        
-        tps = (score>=th)
-        fps = (score<th)
-        import pdb; pdb.set_trace()
-        fns_num =  ((dtm[dtm_id]==0)*(self.cocoGt[dtm_id,0]>0)).sum()
-        
-        scores_sorted = (self.scores_by_id[np.argsort(-self.scores_by_id)]/255)[:tps.shape[1]]
-        
-        import pdb; pdb.set_trace()
-        
-        return tps, fps, fns_num, scores_sorted
+        npig = (gtIg==0).sum()        
+        return tps, fps, npig
         
     def accumulate(self, p = None):
         '''
@@ -137,8 +132,7 @@ class YTVOSeval:
 #             print('Please run evaluate() first')
         # allows input customized parameters
         if p is None:
-            p = self.params
-        p.catIds = p.catIds if p.useCats == 1 else [-1]
+            p = self.params        
         T           = len(p.iouThrs)
         R           = len(p.recThrs)        
         A           = len(p.areaRng)
@@ -148,11 +142,6 @@ class YTVOSeval:
         
         # create dictionary for future indexing
         _pe = self.params
-#         _pe = self._paramsEval
-#         _pe.useCats = 1
-
-#         catIds = [1]
-        catIds = _pe.catIds if _pe.useCats else [-1]
         setA = set(map(tuple, _pe.areaRng))
         # get inds to evaluate
         a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
@@ -160,15 +149,13 @@ class YTVOSeval:
         # retrieve E at each category, area range, and max number of detections
         Nk = A0 
         for a, a0 in enumerate(a_list):
-            tps,fps,fns_num, scores_sorted = self.get_tfpn(a)
-            dtScoresSorted = scores_sorted
-
-            npig = tps.shape[1] + fns_num
-
+            tps,fps,npig = self.get_dtm_by_area(a)            
+            if npig == 0:
+                continue
+            
             tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
             fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
-
-            import pdb; pdb.set_trace()        
+                
             for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
                 tp = np.array(tp)
                 fp = np.array(fp)
@@ -195,12 +182,11 @@ class YTVOSeval:
                 try:
                     for ri, pi in enumerate(inds):
                         q[ri] = pr[pi]
-                        ss[ri] = dtScoresSorted[pi]
+                        ss[ri] = self.scores[pi]
                 except:
                     pass
                 precision[t,:,a] = np.array(q)
-                scores[t,:,a] = np.array(ss)
-                        
+                scores[t,:,a] = np.array(ss)                     
         self.eval = {
             'params': p,
             'counts': [T, R, A],
@@ -227,10 +213,7 @@ class YTVOSeval:
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
-#             mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
-            
-#             import pdb;pdb.set_trace()
-            
+           
             if ap == 1:
                 # dimension of precision: [TxRxKxAxM]
                 s = self.eval['precision']
@@ -238,8 +221,6 @@ class YTVOSeval:
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-#                 s = s[:,:,aind,mind] #took out cat dim
-#                 s = s[:,:,:,aind,mind]
                 s = s[:,:,aind]
             else:
                 # dimension of recall: [TxKxAxM]
@@ -247,8 +228,6 @@ class YTVOSeval:
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-#                 s = s[:,:,aind,mind]# took out cat dim
-#                 s = s[:,:,aind,mind]
                 s = s[:,aind]
             if len(s[s>-1])==0:
                 mean_s = -1
@@ -258,35 +237,18 @@ class YTVOSeval:
             return mean_s
         
         def _summarizeDets():
-            stats = np.zeros((12,))
+            stats = np.zeros((10,))
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
             stats[3] = _summarize(1, areaRng='small')#, maxDets=self.params.maxDets[2])
             stats[4] = _summarize(1, areaRng='medium')#, maxDets=self.params.maxDets[2])
             stats[5] = _summarize(1, areaRng='large')#, maxDets=self.params.maxDets[2])
-            stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
-            stats[7] = _summarize(0)#, maxDets=self.params.maxDets[1])
-            stats[8] = _summarize(0)#, maxDets=self.params.maxDets[2])
-            stats[9] = _summarize(0)#, areaRng='small', maxDets=self.params.maxDets[2])
-            stats[10] = _summarize(0)#, areaRng='medium', maxDets=self.params.maxDets[2])
-            stats[11] = _summarize(0)#, areaRng='large', maxDets=self.params.maxDets[2])
+            stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])            
+            stats[7] = _summarize(0, areaRng='small')
+            stats[8] = _summarize(0, areaRng='medium')
+            stats[9] = _summarize(0, areaRng='large')
             return stats
-#         def _summarizeDets():
-#             stats = np.zeros((12,))
-#             stats[0] = _summarize(1)
-#             stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
-#             stats[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
-#             stats[3] = _summarize(1, areaRng='small', maxDets=self.params.maxDets[2])
-#             stats[4] = _summarize(1, areaRng='medium', maxDets=self.params.maxDets[2])
-#             stats[5] = _summarize(1, areaRng='large', maxDets=self.params.maxDets[2])
-#             stats[6] = _summarize(0, maxDets=self.params.maxDets[0])
-#             stats[7] = _summarize(0, maxDets=self.params.maxDets[1])
-#             stats[8] = _summarize(0, maxDets=self.params.maxDets[2])
-#             stats[9] = _summarize(0, areaRng='small', maxDets=self.params.maxDets[2])
-#             stats[10] = _summarize(0, areaRng='medium', maxDets=self.params.maxDets[2])
-#             stats[11] = _summarize(0, areaRng='large', maxDets=self.params.maxDets[2])
-#             return stats
         
         if not self.eval:
             raise Exception('Please run accumulate() first')
@@ -304,15 +266,11 @@ class Params:
     Params for coco evaluation api
     '''
     def setDetParams(self):
-        self.vidIds = []
-        self.catIds = []
         # np.arange causes trouble.  the data point on arange is slightly larger than the true value
         self.iouThrs = np.linspace(.5, 0.95, np.round((0.95 - .5) / .05) + 1, endpoint=True)
         self.recThrs = np.linspace(.0, 1.00, np.round((1.00 - .0) / .01) + 1, endpoint=True)        
         self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
-        self.useCats = 1
-
 
     def __init__(self, iouType='segm'):
         if iouType == 'segm' or iouType == 'bbox':
