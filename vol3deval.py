@@ -3,16 +3,136 @@ __author__ = 'ychfan'
 import numpy as np
 import datetime
 import time
-from collections import defaultdict
-# from . import mask as maskUtils
-import copy
 
-class V3Deval:
+def seg_bbox3d(seg,do_count=False, uid=None):
+    """returns bounding box of segments for higher processing speed
+    Used for seg_iou3d."""
+    sz = seg.shape
+    assert len(sz)==3
+    if uid is None:
+        uid = np.unique(seg)
+        uid = uid[uid>0]
+    um = int(uid.max())
+    out = np.zeros((1+um,7+do_count),dtype=np.uint32)
+    out[:,0] = np.arange(out.shape[0])
+    out[:,1] = sz[0]
+    out[:,3] = sz[1]
+    out[:,5] = sz[2]
+
+    # for each slice
+    zids = np.where((seg>0).sum(axis=1).sum(axis=1)>0)[0]
+    for zid in zids:
+        sid = np.unique(seg[zid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,1] = np.minimum(out[sid,1],zid)
+        out[sid,2] = np.maximum(out[sid,2],zid)
+
+    # for each row
+    rids = np.where((seg>0).sum(axis=0).sum(axis=1)>0)[0]
+    for rid in rids:
+        sid = np.unique(seg[:,rid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,3] = np.minimum(out[sid,3],rid)
+        out[sid,4] = np.maximum(out[sid,4],rid)
+    
+    # for each col
+    cids = np.where((seg>0).sum(axis=0).sum(axis=0)>0)[0]
+    for cid in cids:
+        sid = np.unique(seg[:,:,cid])
+        sid = sid[(sid>0)*(sid<=um)]
+        out[sid,5] = np.minimum(out[sid,5],cid)
+        out[sid,6] = np.maximum(out[sid,6],cid)
+
+    if do_count:
+        ui,uc = np.unique(seg,return_counts=True)
+        out[ui[ui<=um],-1]=uc[ui<=um]
+
+    return out[uid]
+
+def seg_iou3d(pred, gt, areaRng, todo_id=None):
+    # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
+    # (pred,gt)
+    # return: id_1,id_2,size_1,size_2,iou
+    pred_id, pred_sz = np.unique(pred,return_counts=True)
+    pred_sz = pred_sz[pred_id>0]
+    pred_id = pred_id[pred_id>0]
+    
+    gt_matched_id, gt_sz = np.unique(gt,return_counts=True)
+    gt_sz=gt_sz[gt_id>0];gt_id=gt_id[gt_id>0]
+    
+    if todo_id is None:
+        todo_id = pred_id
+        todo_sz = pred_sz
+    else:
+        predict_sz_rl = np.zeros(pred_id.max()+1,int)
+        predict_sz_rl[pred_id] = pred_sz
+        todo_sz = predict_sz_rl[todo_id]
+    
+    bbs = seg_bbox3d(pred, uid=todo_id)[:,1:]    
+    
+    result_p = np.zeros((len(todo_id), 2+3*areaRng.shape[0]), float)
+    result_p[:,0] = todo_id
+    result_p[:,1] = todo_sz
+
+    gt_matched_id = np.zeros(1+gt_id.max(), int)
+    gt_matched_iou = np.zeros(1+gt_id.max(), float)
+
+    for j,i in enumerate(todo_id):
+        # Find intersection of pred and gt instance inside bbox, call intersection match_id
+        bb = bbs[j]
+        match_id, match_sz=np.unique(gt[bb[0]:bb[1]+1,bb[2]:bb[3]+1]*(pred[bb[0]:bb[1]+1,bb[2]:bb[3]+1]==i),return_counts=True)
+        match_sz=match_sz[match_id>0] # get intersection counts
+        match_id=match_id[match_id>0] # get intersection ids        
+        if len(match_id)>0:
+            # get count of all preds inside bbox (assume gt_id,match_id are of ascending order)
+            gt_sz_match = gt_sz[np.isin(gt_id, match_id)]
+            ious = match_sz.astype(float)/(todo_sz[j] + gt_sz_match - match_sz) #all possible iou combinations of bbox ids are contained
+            
+            for r in range(areaRng.shape[0]): # fill up all, then s, m, l
+                gid = (gt_sz_match>th[r,0])*(gt_sz_match<=th[r,1])
+                if sum(gid)>0: 
+                    idx_iou_max = np.argmax(ious*gid)
+                    result_p[j,2+r*3:2+r*3+3] = [ match_id[idx_iou_max], gt_sz_match[idx_iou_max], ious[idx_iou_max] ]            
+            # update set2
+            gt_todo = gt_matched_iou[match_id]<ious            
+            gt_matched_iou[match_id[gt_todo]] = ious[gt_todo]
+            gt_matched_id[match_id[gt_todo]] = i
+                
+    # get the rest: false negative + dup
+    fn_gid = gt_id[np.isin(gt_id, result_p[:,2], assume_unique=False, invert=True)]
+    fn_gic = gt_sz[np.isin(gt_id, fn_gid)]
+    fn_iou = gt_matched_iou[fn_gid]
+    fn_pid = gt_matched_id[fn_gid]
+    fn_pic = np.hstack([uc[np.isin(ui, fn_pid)],np.zeros((fn_pid==0).sum())])
+    
+    # add back duplicate
+    # instead of bookkeeping in the previous step, faster to redo them    
+    result_fn = np.vstack([fn_pid, fn_pic, fn_gid, fn_gic,fn_iou]).T
+    
+    return result_p, result_fn
+
+def seg_iou3d_sorted(pred, gt, pred_score, areaRng=[0,1e10]):
+    # pred_score: Nx2 [id, score]
+    # 1. sort prediction by confidence score
+    relabel = np.zeros(int(np.max(pred_scores[:,0])+1), float)
+    relabel[scores[:,0].astype(int)] = pred_scores[:,1]
+    
+    # 1. sort the prediction by confidence
+    pred_id = np.unique(pred)
+    pred_id = pred_id[pred>0]
+    pred_id_sorted = np.argsort(-relabel[pred_id])
+    
+    result_p, result_fn = seg_iou3d(pred, gt, areaRng, uid=pred_id_sorted)
+    # format: pid,pc,p_score, gid,gc,iou
+    pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
+    return result_p, result_fn, pred_score_sorted
+ 
+class VOL3Deval:
     # Interface for evaluating video instance segmentation on the YouTubeVIS dataset.
     #
     # The usage for YTVOSeval is as follows:
     #  cocoGt=..., cocoDt=...       # load dataset and results
-    #  E = YTVOSeval(cocoGt,cocoDt); # initialize YTVOSeval object
+    #  E = VOL3Deval(cocoGt,cocoDt); # initialize YTVOSeval object
     #  E.params.recThrs = ...;      # set parameters as desired
     #  E.evaluate();                # run per image evaluation
     #  E.accumulate();              # accumulate per image results
@@ -57,7 +177,7 @@ class V3Deval:
     # Data, paper, and tutorials available at:  http://mscoco.org/
     # Code written by Piotr Dollar and Tsung-Yi Lin, 2015.
     # Licensed under the Simplified BSD License [see coco/license.txt]
-    def __init__(self, p_map, fn_map, iouType='segm'):
+    def __init__(self, result_p, result_fn, score_p=None, iouType='segm'):
         '''
         Initialize CocoEval using coco APIs for gt and dt
         :param cocoGt: coco object with ground truth annotations
@@ -67,27 +187,30 @@ class V3Deval:
         if not iouType:
             print('iouType not specified. use default iouType segm')
         # num_obj x {all, s, m ,l} x {id, size, IOU}
-        
-        self.cocoGt = p_map[:,3:].reshape(-1,4,3)    # ground truth COCO API        
-        self.cocoDt = p_map[:,:2] # detections COCO API                        
-        self.scores = p_map[:,2] # detections COCO API                        
-        self.fn_map = fn_map # false negative
-                
-        self.params   = {}                  # evaluation parameters
-        self.eval     = {}                  # accumulated evaluation results
-        self.params = Params(iouType=iouType) # parameters
-        self.stats = []                     # result summarization        
-        
+
+        # load false negative
+        self.result_fn = result_fn
+
+        # load detection
+        self.cocoDt = result_p[:,:2] # detections COCO API                        
         self.D = self.cocoDt.shape[0]
+        self.scores = score_p # detections COCO API                        
+        if self.scores is None:
+            self.scores = np.zeros(self.D)
+                
+        self.params = Params(iouType=iouType) # parameters
+        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious        
         self.T = len(self.params.iouThrs)
-        gid,gix = np.unique(np.hstack([self.fn_map[:,2],self.cocoGt[:,0,0]]), return_index=True)        
-        gic = np.hstack([self.fn_map[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
-        
+
+        self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API        
+        gid,gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)        
+        gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
         self.gid = gid[gid>0].astype(int)
         self.gic = gic
         self.G = len(self.gid)
-        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious        
 
+        self.eval     = {}                  # accumulated evaluation results
+        self.stats = []                     # result summarization        
         
     def get_dtm_by_area(self, area_id):
         """
