@@ -1,10 +1,11 @@
 # mAP_3Dvolume
 
 ## Introduction:
-This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. 
-
-Our tool relates on this fork of the COCO API: https://github.com/youtubevos/cocoapi
-Please make sure to use our own re-fork, https://github.com/ygCoconut/cocoapi/ if you intend to evaluate the segments by size.
+- This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. 
+- Our tool relates on this fork of the COCO API: https://github.com/youtubevos/cocoapi
+- Make sure to choose which branch you prefer to use: there is V1 and V2.
+    - V1 writes your 3D volume to a coco-formatted json-file and then reads the json-file with the cocoapi from youtubevos. We made a tiny change to the youtubevos api, as the arearange parameter of the mAP evaluation considers the total number of voxels instead of the average  
+- Please make sure to use our own re-fork, https://github.com/ygCoconut/cocoapi/ if you intend to evaluate the segments by size.
 
 ## Important notes:
 - The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.

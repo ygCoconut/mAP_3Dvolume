@@ -3,7 +3,7 @@
 
 """
 # Install cocoapi for video instance segmentation
-https://github.com/youtubevos/cocoapi.git
+https://github.com/ygCoconut/cocoapi.git (reforked from youtubevos)
 This script allows you to obtain .json files in coco format from the ground truth instance segmentation array and the resulting instance prediction. At the end, you can evaluate the mean average precision of your model based on the IoU metric. To do the evaluation, set evaluate to True, which should be the case by default. 
 """
 import numpy as np
@@ -11,8 +11,8 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 # from pycocotools.ytvos import YTVOS
 # from pycocotools.ytvoseval import YTVOSeval
-from pycocotools.coconut import YTVOS
-from pycocotools.coconuteval import YTVOSeval
+from pycocotools.v3d import V3D
+from pycocotools.v3deval import V3Deval
 
 import pycocotools.mask as mask
 import json
@@ -358,16 +358,15 @@ if __name__ == '__main__':
         print('start evaluation')
         gt_path = gt_json
         # Define evaluator
-        ytvosGt = YTVOS(gt_path)
+        v3dGt = V3D(gt_path)
         # Load segmentation result in COCO format
         det_path = pred_json
-        ytvosDt = ytvosGt.loadRes(det_path)
-
-        ytvosEval = YTVOSeval(ytvosGt, ytvosDt, 'segm') # 'bbox' or 'segm'
+        v3dDt = v3dGt.loadRes(det_path)
+        v3dEval = V3Deval(v3dGt, v3dDt, 'segm') # 'bbox' or 'segm'
         #https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocotools/cocoeval.py
-        ytvosEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
-        ytvosEval.params.vidIds = sorted(ytvosGt.getVidIds())
-        ytvosEval.evaluate()
-        ytvosEval.accumulate()
-        ytvosEval.summarize()
+        v3dEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]] # [All, Small, Medium, Large]
+        v3dEval.params.vidIds = sorted(v3dGt.getVidIds())
+        v3dEval.evaluate()
+        v3dEval.accumulate()
+        v3dEval.summarize()
         
