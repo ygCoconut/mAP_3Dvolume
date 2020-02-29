@@ -122,8 +122,8 @@ def seg_iou3d_sorted(pred, gt, pred_score, areaRng=[0,1e10]):
     pred_id = np.unique(pred)
     pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
+    result_p, result_fn = seg_iou3d(pred, gt, areaRng, todo_id=pred_id[pred_id_sorted])
     
-    result_p, result_fn = seg_iou3d(pred, gt, areaRng, todo_id=pred_id_sorted)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted
