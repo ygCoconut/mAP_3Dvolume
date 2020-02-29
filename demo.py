@@ -114,9 +114,7 @@ def main():
     if args.do_txt == 1:
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
         'ID, \tSIZE \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t\n' + '-'*108
-#         rowformat = '%d\t\t%4d\t\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'    
         rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'        
-
         np.savetxt(args.output_name+'_p.txt', result_p, fmt=rowformat, header=header)
 
         header = '\t\t\t prediction \t\t |\t\t gt \t\t\n' + \
