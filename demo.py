@@ -111,9 +111,6 @@ def main():
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
-#     print(result_p)
-#     print(type(result_p))
-#     print(result_p.shape)
     if args.do_txt == 1:
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
         'ID, \tSIZE \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t\n' + '-'*108
