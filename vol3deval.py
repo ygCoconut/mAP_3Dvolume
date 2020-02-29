@@ -57,7 +57,7 @@ def seg_iou3d(pred, gt, areaRng, todo_id=None):
     pred_sz = pred_sz[pred_id>0]
     pred_id = pred_id[pred_id>0]
     
-    gt_matched_id, gt_sz = np.unique(gt,return_counts=True)
+    gt_id, gt_sz = np.unique(gt,return_counts=True)
     gt_sz=gt_sz[gt_id>0];gt_id=gt_id[gt_id>0]
     
     if todo_id is None:
@@ -89,7 +89,7 @@ def seg_iou3d(pred, gt, areaRng, todo_id=None):
             ious = match_sz.astype(float)/(todo_sz[j] + gt_sz_match - match_sz) #all possible iou combinations of bbox ids are contained
             
             for r in range(areaRng.shape[0]): # fill up all, then s, m, l
-                gid = (gt_sz_match>th[r,0])*(gt_sz_match<=th[r,1])
+                gid = (gt_sz_match>areaRng[r,0])*(gt_sz_match<=areaRng[r,1])
                 if sum(gid)>0: 
                     idx_iou_max = np.argmax(ious*gid)
                     result_p[j,2+r*3:2+r*3+3] = [ match_id[idx_iou_max], gt_sz_match[idx_iou_max], ious[idx_iou_max] ]            
@@ -103,7 +103,7 @@ def seg_iou3d(pred, gt, areaRng, todo_id=None):
     fn_gic = gt_sz[np.isin(gt_id, fn_gid)]
     fn_iou = gt_matched_iou[fn_gid]
     fn_pid = gt_matched_id[fn_gid]
-    fn_pic = np.hstack([uc[np.isin(ui, fn_pid)],np.zeros((fn_pid==0).sum())])
+    fn_pic = np.hstack([pred_sz[np.isin(pred_id, fn_pid)],np.zeros((fn_pid==0).sum())])
     
     # add back duplicate
     # instead of bookkeeping in the previous step, faster to redo them    
@@ -114,15 +114,16 @@ def seg_iou3d(pred, gt, areaRng, todo_id=None):
 def seg_iou3d_sorted(pred, gt, pred_score, areaRng=[0,1e10]):
     # pred_score: Nx2 [id, score]
     # 1. sort prediction by confidence score
-    relabel = np.zeros(int(np.max(pred_scores[:,0])+1), float)
-    relabel[scores[:,0].astype(int)] = pred_scores[:,1]
+    relabel = np.zeros(int(np.max(pred_score[:,0])+1), float)
+#     relabel[scores[:,0].astype(int)] = pred_score[:,1]
+    relabel[pred_score[:,0].astype(int)] = pred_score[:,1]
     
     # 1. sort the prediction by confidence
     pred_id = np.unique(pred)
-    pred_id = pred_id[pred>0]
+    pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
     
-    result_p, result_fn = seg_iou3d(pred, gt, areaRng, uid=pred_id_sorted)
+    result_p, result_fn = seg_iou3d(pred, gt, areaRng, todo_id=pred_id_sorted)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted

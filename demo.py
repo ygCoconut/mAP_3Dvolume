@@ -111,11 +111,16 @@ def main():
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
-    if args.do_txt == 'True':
-        header = '\t\t\t prediction \t\t\t\t |\t\t gt all \t\t|\t gt small \t\t|\t gt medium \t\t|\t gt large\n' + \
-        'ID, \tSIZE, SCORE  | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU\n' + '-'*116
-        rowformat = '%d\t\t%4d\t\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'        
-        np.savetxt(args.output_name+'_p.txt', result_fn, fmt=rowformat, header=header)
+#     print(result_p)
+#     print(type(result_p))
+#     print(result_p.shape)
+    if args.do_txt == 1:
+        header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
+        'ID, \tSIZE \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t\n' + '-'*108
+#         rowformat = '%d\t\t%4d\t\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'    
+        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'        
+
+        np.savetxt(args.output_name+'_p.txt', result_p, fmt=rowformat, header=header)
 
         header = '\t\t\t prediction \t\t |\t\t gt \t\t\n' + \
         'ID, \tSIZE | ID, SIZE, \tIoU \n' + '-'*40
@@ -123,7 +128,7 @@ def main():
         np.savetxt(args.output_name+'_fn.txt', result_fn, fmt=rowformat, header=header)
         
     ## 3. Evaluation script for 3D instance segmentation
-    if args.do_eval == 'True':
+    if args.do_eval == 1:
         print('start evaluation')        
         #Evaluation
         v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted)
