@@ -5,9 +5,10 @@ This repo contains a tool to evaluate the mean average precision score (mAP) of 
 
 ## Important notes:
 - The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.
-- The tool assumes that the z-axis is the first axis, then x then y (i.e. gt.shape = (z, x, y), where z represents the slices of your stack). This should not matter in terms of map score though if you load a 3D array.
+- The tool assumes that the z-axis is the first axis, then x, then y (i.e. gt.shape = (z, x, y), where z represents the slices of your stack). This should not matter in terms of map score though if you load a 3D array.
 - There is a variety of flags that you can use. The most important flags are probably -ph and -ps. Choose -ps if you already computed the scores, otherwise you can use -ph to feed the tool with your output layer heatmap.
 - In our model output, each voxel has 3 score/affinity values. For this reason, the average instance score is calculated in a way that might not be compatible with your model output. Feel free to adapt the score function.
+- Make sure you have converted your semantic segmentation to instance segmentation. Even if all instances have the same category ID, each instance needs a different ID. One way to do it is with skimage.measure.label() (connected components).
 
 ## Requirements:
 - You can use one of the following two commands to install the required packages:
@@ -22,7 +23,7 @@ pip install requirements.txt
 ## How it works:
 Run the following command to use the tool:
 ```
-python run_eval.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -ph "path/to/model_output.h5"
+python demo.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -ph "path/to/model_output.h5"
 ```
 The following steps will be executed by the script:
 1) Load the following 3D arrays:
