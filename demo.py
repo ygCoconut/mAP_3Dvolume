@@ -11,7 +11,8 @@ import argparse
 import numpy as np
 import h5py
 
-from vol3deval import VOL3Deval, seg_iou3d_sorted
+from vol3d_eval import VOL3Deval
+from vol3d_util import seg_iou3d_sorted,heatmap_to_score,readh5
 
 
 ##### 1. I/O
@@ -30,7 +31,7 @@ def get_args():
                        help='path to heatmap for all predictions')
     parser.add_argument('-phc','--predict-heatmap-channel', type=int, default=-1,
                        help='heatmap channel to use')
-    parser.add_argument('-th','--threshold', type=str, default='0, 1e10, 0, 1e5, 1e5, 5e5, 5e5, 1e10',
+    parser.add_argument('-th','--threshold', type=str, default='5e3, 1.5e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
 
     parser.add_argument('-o','--output-name', type=str, default='vol3d',
@@ -45,48 +46,27 @@ def get_args():
         raise ValueError('at least one of "predict_heatmap" and "predict_score" should not be zero')
     return args
 
-def load_h5(path, vol=''):
-    # do the first key
-    fid = h5py.File(path, 'r')
-    if vol == '': 
-        if sys.version[0]=='3':
-            vol = list(fid)[0]
-        else: # python 2
-            vol = fid.keys()[0] 
-    return np.array(fid[vol]).squeeze()
 
 
 def load_data(args):
     # load data arguments
-    pred_seg = load_h5(args.predict_seg)
-    gt_seg = load_h5(args.gt_seg)
+    pred_seg = readh5(args.predict_seg)
+    gt_seg = readh5(args.gt_seg)
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
-        pred_score = load_h5(args.predict_score)
+        pred_score = readh5(args.predict_score)
     else:
-        pred_score = load_h5(args.predict_heatmap)
-        pred_score = heatmap_to_score(pred_seg, pred_score, args.predict_heatmap_channel)
+        pred_heatmap = readh5(args.predict_heatmap)
+        r_id, r_score, _ = heatmap_to_score(pred_seg, pred_heatmap, args.predict_heatmap_channel)
+        pred_score = np.vstack([r_id, r_score]).T 
 
-    return gt_seg, pred_seg, pred_score
-
-def heatmap_to_score(pred, heatmap, channel=-1):
-    if heatmap.ndim>pred.ndim:
-        if channel != -1:
-            heatmap = heatmap[channel]
-        else:
-            heatmap = heatmap.mean(axis=0)
-
-    pred_id = np.unique(pred)
-    pred_view = pred.ravel()
-    pred_len = pred_id.max()+1
-    # relabel bincount(minlen = max_len) with ids
-    count_voxel = np.bincount(pred_view, minlength=pred_len)
-    count_score = np.bincount(pred_view, weights=heatmap.ravel(), minlength=pred_len)
-    score = count_score[pred_id]/count_voxel[pred_id]
-    if score.max()>1.1:#assume 0-255
-        score = score/255.
-    out = np.vstack([pred_id,score]).T 
-    return out
+    thres = np.fromstring(args.threshold, sep = ",")
+    areaRng = np.zeros((len(thres)+2,2),int)
+    areaRng[0,1] = 1e10
+    areaRng[-1,1] = 1e10
+    areaRng[2:,0] = thres
+    areaRng[1:-1,1] = thres
+    return gt_seg, pred_seg, pred_score, areaRng
 
 def main():
     """ 
@@ -99,40 +79,30 @@ def main():
     """
     ## 1. Load data
     start_time = int(round(time.time() * 1000))
-    print('\n\t1. Load data')
+    print('\t1. Load data')
     args = get_args()
-    gt_seg, pred_seg, pred_score = load_data(args)
-    areaRng = np.fromstring(args.threshold, sep = ",").reshape(-1, 2)
+    gt_seg, pred_seg, pred_score, areaRng = load_data(args)
     
     ## 2. create complete mapping of ids for gt and pred:
-    print('\n\t2. Compute IoU')
+    print('\t2. Compute IoU')
     result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng)
     
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
-    if args.do_txt == 'True':
-        header = '\t\t\t prediction \t\t\t\t |\t\t gt all \t\t|\t gt small \t\t|\t gt medium \t\t|\t gt large\n' + \
-        'ID, \tSIZE, SCORE  | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU | ID, SIZE, \tIoU\n' + '-'*116
-        rowformat = '%d\t\t%4d\t\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'        
-        np.savetxt(args.output_name+'_p.txt', result_fn, fmt=rowformat, header=header)
-
-        header = '\t\t\t prediction \t\t |\t\t gt \t\t\n' + \
-        'ID, \tSIZE | ID, SIZE, \tIoU \n' + '-'*40
-        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f'
-        np.savetxt(args.output_name+'_fn.txt', result_fn, fmt=rowformat, header=header)
-        
     ## 3. Evaluation script for 3D instance segmentation
-    if args.do_eval == 'True':
+    v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted)
+    if args.do_txt > 0:
+        v3dEval.save_match_p(args.output_name+'_match_p.txt')
+        v3dEval.save_match_fn(args.output_name+'_match_fn.txt')
+    if args.do_eval > 0:
         print('start evaluation')        
         #Evaluation
-        v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted)
         #v3dEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]
         v3dEval.params.areaRng = areaRng
         v3dEval.accumulate()
         v3dEval.summarize()
         
-
 if __name__ == '__main__':
     main()
 
