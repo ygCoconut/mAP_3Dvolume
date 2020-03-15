@@ -262,14 +262,14 @@ class VOL3Deval:
 
     def save_match_p(self, output_name): 
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
-                    'ID, \tSIZE \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t|\tID, SIZE, \tIoU \t\n' + '-'*108
-        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f'
+                    'ID\tSIZE\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU \t\n' + '-'*108
+        rowformat = '%d\t%4d\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f'
         np.savetxt(output_name, self.result_p, fmt=rowformat, header=header)
 
     def save_match_fn(self, output_name): 
-        header = '\t\t\t prediction \t\t |\t\t gt \t\t\n' + \
-                    'ID, \tSIZE | ID, SIZE, \tIoU \n' + '-'*40
-        rowformat = '%d\t\t%4d\t\t%d\t%4d\t%.4f'
+        header = '\tprediction \t |\t gt \t\n' + \
+                    'ID\tSIZE\t| ID\tSIZE\tIoU \n' + '-'*40
+        rowformat = '%d\t%4d\t%d\t%4d\t%.4f'
         np.savetxt(output_name, self.result_fn, fmt=rowformat, header=header)
 
     def __str__(self):
