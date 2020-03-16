@@ -114,7 +114,7 @@ def label_chunk(get_chunk, numC, rr=1, m_type=np.uint64):
             _, slices = cv2.connectedComponents(np.stack([slice_b>0, slice_t>0],axis=0), connectivity=4).astype(m_type)
             # create mapping for seg cur
             lc = np.unique(seg_c);lc=lc[lc>0]
-            rl_c = np.zeros(lc.max()+1, dtype=int)
+            rl_c = np.zeros(int(lc.max())+1, dtype=int)
             # merge curr seg
             # for 1 pre seg id -> slices id -> cur seg ids
             l0_p = np.unique(slice_b*(slices[0]>0))
