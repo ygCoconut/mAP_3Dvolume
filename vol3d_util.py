@@ -170,9 +170,9 @@ def heatmap_to_score(seg, heatmap, channel=-1, do_avg=True):
 
     seg_id, seg_count = np.unique(seg, return_counts=True)
     seg_view = seg.ravel()
-    seg_len = seg_id.max()+1
+    seg_len = int(seg_id.max())+1
     # relabel bincount(minlen = max_len) with ids
-    score = np.bincount(seg_view, weights=heatmap.ravel(), minlength=seg_len)[seg_id]
+    score = np.bincount(seg_view.astype(int), weights=heatmap.ravel(), minlength=seg_len)[seg_id.astype(int)]
     if do_avg:
         score = score/seg_count
         if score.max()>1: # assume 0-255

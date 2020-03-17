@@ -52,7 +52,7 @@ class VOL3Deval:
     # Data, paper, and tutorials available at:  http://mscoco.org/
     # Code written by Piotr Dollar and Tsung-Yi Lin, 2015.
     # Licensed under the Simplified BSD License [see coco/license.txt]
-    def __init__(self, result_p, result_fn, score_p=None, iouType='segm'):
+    def __init__(self, result_p, result_fn, score_p=None, iouType='segm', output_name=''):
         '''
         Initialize CocoEval using coco APIs for gt and dt
         :param cocoGt: coco object with ground truth annotations
@@ -66,6 +66,7 @@ class VOL3Deval:
         # load false negative
         self.result_fn = result_fn
         self.result_p = result_p
+        self.output_name = output_name
 
         # load detection
         self.cocoDt = result_p[:,:2] # detections COCO API                        
@@ -232,7 +233,13 @@ class VOL3Deval:
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s>-1])
-            print(iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s))
+
+            msg = iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s)
+            if self.output_writer is None: 
+                print(msg)
+            else:
+                self.output_writer.write(msg+'\n')
+
             return mean_s
         
         def _summarizeDets():
@@ -240,9 +247,9 @@ class VOL3Deval:
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[3] = _summarize(1, areaRng='small')#, maxDets=self.params.maxDets[2])
-            stats[4] = _summarize(1, areaRng='medium')#, maxDets=self.params.maxDets[2])
-            stats[5] = _summarize(1, areaRng='large')#, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
             # no recall
             """
             stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])            
@@ -254,23 +261,27 @@ class VOL3Deval:
         
         if not self.eval:
             raise Exception('Please run accumulate() first')
+
+        self.output_writer = open(self.output_name+'_map.txt','w') if self.output_name!='' else None
         iouType = self.params.iouType
         if iouType == 'segm' or iouType == 'bbox':
             summarize = _summarizeDets
 
         self.stats = summarize()
+        if self.output_writer is not None:
+            self.output_writer.close()
 
-    def save_match_p(self, output_name): 
+    def save_match_p(self, output_name=''): 
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
                     'ID\tSIZE\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU \t\n' + '-'*108
         rowformat = '%d\t%4d\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f'
-        np.savetxt(output_name, self.result_p, fmt=rowformat, header=header)
+        np.savetxt(self.output_name+output_name+'_match_p.txt', self.result_p, fmt=rowformat, header=header)
 
-    def save_match_fn(self, output_name): 
+    def save_match_fn(self, output_name=''): 
         header = '\tprediction \t |\t gt \t\n' + \
                     'ID\tSIZE\t| ID\tSIZE\tIoU \n' + '-'*40
         rowformat = '%d\t%4d\t%d\t%4d\t%.4f'
-        np.savetxt(output_name, self.result_fn, fmt=rowformat, header=header)
+        np.savetxt(self.output_name+output_name+'_match_fn.txt', self.result_fn, fmt=rowformat, header=header)
 
     def __str__(self):
         self.summarize()
