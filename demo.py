@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument('-th','--threshold', type=str, default='5e3, 1.5e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
 
-    parser.add_argument('-o','--output-name', type=str, default='vol3d',
+    parser.add_argument('-o','--output-name', type=str, default='',
                        help='output name prefix')
     parser.add_argument('-dt','--do-txt', type=int, default=1,
                        help='output txt for iou results')
@@ -93,7 +93,9 @@ def main():
     ## 3. Evaluation script for 3D instance segmentation
     v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted)
     if args.do_txt > 0:
-        v3dEval.save_match_p(args.output_name+'_match_p.txt')
+        if args.output_name=='':
+            args.output_name = args.predict_seg[:args.predict_seg.rfind('.')] 
+        v3dEval.save_match_pargs.output_name+'_match_p.txt')
         v3dEval.save_match_fn(args.output_name+'_match_fn.txt')
     if args.do_eval > 0:
         print('start evaluation')        
