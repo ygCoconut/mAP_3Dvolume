@@ -297,14 +297,14 @@ def seg_bbox3d_tile(seg_tiles, do_count=False, max_id=-1):
         return out[uid]
 
 
-def seg_iou3d(pred, gt, areaRng, todo_id=None):
+def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
     pred_id, pred_sz = np.unique(pred, return_counts=True)
     pred_sz = pred_sz[pred_id>0]
     pred_id = pred_id[pred_id>0]
-    predict_sz_rl = np.zeros(pred_id.max()+1,int)
+    predict_sz_rl = np.zeros(int(pred_id.max())+1,int)
     predict_sz_rl[pred_id] = pred_sz
     
     gt_id, gt_sz = np.unique(gt,return_counts=True)
