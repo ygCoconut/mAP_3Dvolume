@@ -104,9 +104,7 @@ def main():
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
     ## 3. Evaluation script for 3D instance segmentation
-    if args.output_name=='n':
-        args.output_name = ''
-    elif args.output_name=='':
+    if args.output_name=='':
         args.output_name = args.predict_seg[:args.predict_seg.rfind('.')] 
     v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted, output_name=args.output_name)
     if args.do_txt > 0:
