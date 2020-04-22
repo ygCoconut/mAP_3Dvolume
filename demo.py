@@ -42,8 +42,6 @@ def get_args():
                        help='do evaluation')
     args = parser.parse_args()
     
-    if args.predict_heatmap=='' and args.predict_score=='':
-        raise ValueError('at least one of "predict_heatmap" and "predict_score" should not be zero')
     return args
 
 
@@ -55,10 +53,15 @@ def load_data(args):
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
         pred_score = readh5(args.predict_score)
-    else:
+    elif args.predict_heatmap!='':
         pred_heatmap = readh5(args.predict_heatmap)
         r_id, r_score, _ = heatmap_to_score(pred_seg, pred_heatmap, args.predict_heatmap_channel)
         pred_score = np.vstack([r_id, r_score]).T 
+    else: # default, all 1
+        ui = np.unique(pred_seg)
+        ui = ui[ui>0]
+        pred_score = np.ones([len(ui),2],int)
+        pred_score[:,0] = ui
 
     thres = np.fromstring(args.threshold, sep = ",")
     areaRng = np.zeros((len(thres)+2,2),int)
