@@ -52,9 +52,9 @@ def load_data(args):
     gt_seg = readh5(args.gt_seg)
 
     # check shape match
-    sz_gt = gt_seg.shape
+    sz_gt = np.array(gt_seg.shape)
     sz_pred = pred_seg.shape
-    if (sz_gt-sz_pred).abs().max()>0:
+    if np.abs((sz_gt-sz_pred)).max()>0:
         print('Warning: size mismatch. gt: ',sz_gt,', pred: ',sz_pred)
     sz = np.minimum(sz_gt,sz_pred)
     pred_seg = pred_seg[:sz[0],:sz[1],:sz[2]]
@@ -67,11 +67,13 @@ def load_data(args):
         pred_heatmap = readh5(args.predict_heatmap)
         r_id, r_score, _ = heatmap_to_score(pred_seg, pred_heatmap, args.predict_heatmap_channel)
         pred_score = np.vstack([r_id, r_score]).T 
-    else: # default, all 1
-        ui = np.unique(pred_seg)
+    else: # default: sort by size
+        ui,uc = np.unique(pred_seg,return_counts=True)
+        uc = uc[ui>0]
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
+        pred_score[:,1] = uc
 
     thres = np.fromstring(args.threshold, sep = ",")
     areaRng = np.zeros((len(thres)+2,2),int)
