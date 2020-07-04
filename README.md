@@ -23,7 +23,7 @@ pip install requirements.txt
 ## How it works:
 Run the following command to use the tool:
 ```
-python demo.py -p "path/to/prediction.h5" -gt "path/to/ground_truth.h5" -ph "path/to/model_output.h5"
+python demo.py -gt demo_data/lucchi_gt_test.h5 -p demo_data/lucchi_pred_UNet_label_test.h5 -ph demo_data/lucchi_pred_UNet_heatmap_test.h5
 ```
 The following steps will be executed by the script:
 1) Load the following 3D arrays:
