@@ -9,6 +9,7 @@ This repo contains a tool to evaluate the mean average precision score (mAP) of 
 - There is a variety of flags that you can use. The most important flags are probably -ph and -ps. Choose -ps if you already computed the scores, otherwise you can use -ph to feed the tool with your output layer heatmap.
 - In our model output, each voxel has 3 score/affinity values. For this reason, the average instance score is calculated in a way that might not be compatible with your model output. Feel free to adapt the score function.
 - Make sure you have converted your semantic segmentation to instance segmentation. Even if all instances have the same category ID, each instance needs a different ID. One way to do it is with skimage.measure.label() (connected components).
+- The main branch is running with python 3.7, the legacy branch is running with python 2.7
 
 ## Requirements:
 - You can use one of the following two commands to install the required packages:
@@ -16,9 +17,6 @@ This repo contains a tool to evaluate the mean average precision score (mAP) of 
 conda install --yes --file requirements.txt
 pip install requirements.txt
 ```
-
-
-- The master branch is running with python 2.7 as a default, but can easily be adapted to run with python 3 if needed.
 
 ## How it works:
 Run the following command to use the tool:
