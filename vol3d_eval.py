@@ -69,56 +69,56 @@ class VOL3Deval:
         self.output_name = output_name
 
         # load detection
-        self.cocoDt = result_p[:,:2] # detections COCO API                        
+        self.cocoDt = result_p[:,:2] # detections COCO API
         self.D = self.cocoDt.shape[0]
-        self.scores = score_p # detections COCO API                        
+        self.scores = score_p # detections COCO API
         if self.scores is None:
             self.scores = np.zeros(self.D)
-                
+
         self.params = Params(iouType=iouType) # parameters
-        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious        
+        self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious
         self.T = len(self.params.iouThrs)
 
-        self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API        
-        gid,gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)        
+        self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API
+        gid,gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)
         gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
         self.gid = gid[gid>0].astype(int)
         self.gic = gic
         self.G = len(self.gid)
 
         self.eval     = {}                  # accumulated evaluation results
-        self.stats = []                     # result summarization        
-        
+        self.stats = []                     # result summarization
+
     def get_dtm_by_area(self, area_id):
         """
         For each instance, we need the number of true positives, false positives and false negatives
         at each IoU threshold.
-        """   
-        
+        """
+
         cocoGt = self.cocoGt[:,area_id]
-        
+
         # gtIg: size self.G (include 0)
         gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
-        gtIg_id = self.gid[gtIg]        
-        
+        gtIg_id = self.gid[gtIg]
+
         # if no match in the area range, add back best
         match_id = cocoGt[:,0].astype(int)
         match_iou = cocoGt[:,2]
         match_iou[match_id==0] = self.cocoGt[match_id==0,0,2]
         match_id[match_id==0] = self.cocoGt[match_id==0,0,0]
-                       
-        dtm = match_id*(match_iou>=self.th)        
+
+        dtm = match_id*(match_iou>=self.th)
         # find detection outside the area range
         dtIg = (dtm>0)*np.isin(dtm,gtIg_id).reshape(dtm.shape)
         a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
-        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))        
-        
+        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
+
         tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
         fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
-        
-        npig = (gtIg==0).sum()        
+
+        npig = (gtIg==0).sum()
         return tps, fps, npig
-        
+
     def accumulate(self, p = None):
         '''
         Accumulate per image evaluation results and store the result in self.eval
@@ -132,14 +132,14 @@ class VOL3Deval:
 #             print('Please run evaluate() first')
         # allows input customized parameters
         if p is None:
-            p = self.params        
+            p = self.params
         T           = len(p.iouThrs)
-        R           = len(p.recThrs)        
+        R           = len(p.recThrs)
         A           = len(p.areaRng)
         precision   = -np.ones((T,R,A)) # -1 for the precision of absent categories
         recall      = -np.ones((T,A))
         scores      = -np.ones((T,R,A))
-        
+
         # create dictionary for future indexing
         _pe = self.params
         setA = set(map(tuple, _pe.areaRng))
@@ -147,15 +147,15 @@ class VOL3Deval:
         a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
         A0 = len(_pe.areaRng)
         # retrieve E at each category, area range, and max number of detections
-        Nk = A0 
+        Nk = A0
         for a, a0 in enumerate(a_list):
-            tps,fps,npig = self.get_dtm_by_area(a)            
+            tps,fps,npig = self.get_dtm_by_area(a)
             if npig == 0:
                 continue
-            
+
             tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
             fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
-                
+
             for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
                 tp = np.array(tp)
                 fp = np.array(fp)
@@ -169,7 +169,7 @@ class VOL3Deval:
                     recall[t,a] = rc[-1]
                 else:
                     recall[t,a] = 0
-                    
+
                 # numpy is slow without cython optimization for accessing elements
                 # use python array gets significant speed improvement
                 pr = pr.tolist(); q = q.tolist()
@@ -186,7 +186,7 @@ class VOL3Deval:
                 except:
                     pass
                 precision[t,:,a] = np.array(q)
-                scores[t,:,a] = np.array(ss)                     
+                scores[t,:,a] = np.array(ss)
         self.eval = {
             'params': p,
             'counts': [T, R, A],
@@ -213,7 +213,7 @@ class VOL3Deval:
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
-           
+
             if ap == 1:
                 # dimension of precision: [TxRxKxAxM]
                 s = self.eval['precision']
@@ -235,13 +235,13 @@ class VOL3Deval:
                 mean_s = np.mean(s[s>-1])
 
             msg = iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s)
-            if self.output_writer is None: 
+            if self.output_writer is None:
                 print(msg)
             else:
                 self.output_writer.write(msg+'\n')
 
             return mean_s
-        
+
         def _summarizeDets():
             stats = np.zeros((10,))
             stats[0] = _summarize(1)
@@ -252,13 +252,13 @@ class VOL3Deval:
             stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
             # no recall
             """
-            stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])            
+            stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
             stats[7] = _summarize(0, areaRng='small')
             stats[8] = _summarize(0, areaRng='medium')
             stats[9] = _summarize(0, areaRng='large')
             """
             return stats
-        
+
         if not self.eval:
             raise Exception('Please run accumulate() first')
 
@@ -271,13 +271,13 @@ class VOL3Deval:
         if self.output_writer is not None:
             self.output_writer.close()
 
-    def save_match_p(self, output_name=''): 
+    def save_match_p(self, output_name=''):
         header = '\tprediction  |\t\t gt all \t\t|\t\t gt small \t\t|\t\tgt medium \t\t|\t gt large\n' + \
                     'ID\tSIZE\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU\t| ID\tSIZE\tIoU \t\n' + '-'*108
         rowformat = '%d\t%4d\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f\t\t%d\t%4d\t%.4f\t%d\t%4d\t%.4f'
         np.savetxt(self.output_name+output_name+'_match_p.txt', self.result_p, fmt=rowformat, header=header)
 
-    def save_match_fn(self, output_name=''): 
+    def save_match_fn(self, output_name=''):
         header = '\tprediction \t |\t gt \t\n' + \
                     'ID\tSIZE\t| ID\tSIZE\tIoU \n' + '-'*40
         rowformat = '%d\t%4d\t%d\t%4d\t%.4f'
@@ -291,12 +291,12 @@ class Params:
     Params for coco evaluation api
     '''
     def setDetParams(self):
-	# np.arange causes trouble.  the data point on arange is slightly larger than the true value
-	self.iouThrs = np.linspace(.5, 0.95, int(np.round((0.95 - .5) / .05) + 1), endpoint=True)
-	self.recThrs = np.linspace(.0, 1.00, int(np.round((1.00 - .0) / .01) + 1), endpoint=True)
-	self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
-	self.areaRngLbl = ['all', 'small', 'medium', 'large']
-
+	# np.arange causes trouble.  the data point on arange is slightly larger than the true
+    self.iouThrs = np.linspace(.5, 0.95, int(np.round((0.95 - .5) / .05) + 1), endpoint=True)
+    self.recThrs = np.linspace(.0, 1.00, int(np.round((1.00 - .0) / .01) + 1), endpoint=True)
+    self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
+    self.areaRngLbl = ['all', 'small', 'medium', 'large']
+    
     def __init__(self, iouType='segm'):
         if iouType == 'segm' or iouType == 'bbox':
             self.setDetParams()
