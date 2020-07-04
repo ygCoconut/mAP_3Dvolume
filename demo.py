@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument('-th','--threshold', type=str, default='5e3, 1.5e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
 
-    parser.add_argument('-o','--output-name', type=str, default='',
+    parser.add_argument('-o','--output-name', type=str, default='map_output',
                        help='output name prefix')
     parser.add_argument('-dt','--do-txt', type=int, default=1,
                        help='output txt for iou results')
