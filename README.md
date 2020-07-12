@@ -37,3 +37,15 @@ The following steps will be executed by the script:
 - iou_fn.txt contains false negatives, as well as instances that have been matched with a worse iou than another instance.  
 
 3) Evaluate the model performance with mAP by using the 3D optimized evaluation script  and the 2 tables mentioned above.
+
+## Citation
+If you find it useful in your project, please cite:
+
+```bibtex
+@inproceedings{wei2020mitoem,
+  author =       {Donglai Wei, Zudi Lin, Daniel Franco-Barranco, Nils Wendt, Xingyu Liu, Wenjie Yin, Xin Huang, Aarush Gupta, Won-Dong Jang, Xueying Wang, Ignacio Arganda-Carreras, Jeff Lichtman, Hanspeter Pfister},
+  title =        {MitoEM Dataset: Large-scale 3D Mitochondria Instance Segmentation from EM Images},
+  booktitle = {International Conference on Medical Image Computing & Computer Assisted Intervention (MICCAI)},
+  year =         {2020}
+}
+```
