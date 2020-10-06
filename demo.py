@@ -12,63 +12,61 @@ import numpy as np
 import h5py
 
 from vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou3d_sorted,heatmap_to_score,readh5
+from vol3d_util import seg_iou3d_sorted, readh5_handle, unique_chunk
 
 
 ##### 1. I/O
 def get_args():
-    parser = argparse.ArgumentParser(description='Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
-    parser.add_argument('-gt','--gt-seg', type=str, default='~/my_ndarray.h5',
+    parser = argparse.ArgumentParser(description = 'Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
+    parser.add_argument('-gt', '--gt-seg', type = str, default = '~/my_ndarray.h5',
                        help='path to ground truth segmentation result')
 
-    parser.add_argument('-p','--predict-seg', type=str, default='~/my_ndarray.h5',
+    parser.add_argument('-p', '--predict-seg', type = str, default = '~/my_ndarray.h5',
                        help='path to predicted instance segmentation result')
     # either input the pre-compute prediction score
-    parser.add_argument('-ps','--predict-score', type=str, default='',
-                       help='path to confidence score for each prediction')
-    # or avg input affinity/heatmap prediction
-    parser.add_argument('-ph','--predict-heatmap', type=str, default='',
-                       help='path to heatmap for all predictions')
-    parser.add_argument('-phc','--predict-heatmap-channel', type=int, default=-1,
-                       help='heatmap channel to use')
-    parser.add_argument('-th','--threshold', type=str, default='5e3, 1.5e4',
+    parser.add_argument('-ps', '--predict-score', type = str, default = '',
+                       help='path to a txt or h5 file containing the confidence score for each prediction')
+    parser.add_argument('-th', '--threshold', type = str, default = '5e3, 1.5e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
 
-    parser.add_argument('-o','--output-name', type=str, default='map_output',
+    parser.add_argument('-cz', '--chunk-size', type = int, default = 250,
+                       help='for memory-efficient computation, how many slices to load')
+
+    parser.add_argument('-o', '--output-name', type = str, default = 'map_output',
                        help='output name prefix')
-    parser.add_argument('-dt','--do-txt', type=int, default=1,
+    parser.add_argument('-dt', '--do-txt', type = int, default = 1,
                        help='output txt for iou results')
-    parser.add_argument('-de','--do-eval', type=int, default=1,
+    parser.add_argument('-de', '--do-eval', type = int, default = 1,
                        help='do evaluation')
     args = parser.parse_args()
     
     return args
 
-
-
 def load_data(args):
     # load data arguments
-    pred_seg = readh5(args.predict_seg)
-    gt_seg = readh5(args.gt_seg)
+    pred_seg = readh5_handle(args.predict_seg)
+    gt_seg = readh5_handle(args.gt_seg)
 
     # check shape match
     sz_gt = np.array(gt_seg.shape)
     sz_pred = pred_seg.shape
     if np.abs((sz_gt-sz_pred)).max()>0:
-        print('Warning: size mismatch. gt: ',sz_gt,', pred: ',sz_pred)
-    sz = np.minimum(sz_gt,sz_pred)
-    pred_seg = pred_seg[:sz[0],:sz[1],:sz[2]]
-    gt_seg = gt_seg[:sz[0],:sz[1],:sz[2]]
+        raise ValueError('Warning: size mismatch. gt: {}, pred: '.format(sz_gt,sz_pred))
 
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
-        pred_score = readh5(args.predict_score)
-    elif args.predict_heatmap!='':
-        pred_heatmap = readh5(args.predict_heatmap)
-        r_id, r_score, _ = heatmap_to_score(pred_seg, pred_heatmap, args.predict_heatmap_channel)
-        pred_score = np.vstack([r_id, r_score]).T 
+        if '.h5' in args.predict_score:
+            pred_score = readh5(args.predict_score)
+        elif '.txt' in args.predict_score:
+            pred_score = np.loadtxt(args.predict_score)
+        else:
+            raise ValueError('Unknown file format for the prediction score')
+        if (pred_score.shape==2).any()
+            raise ValueError('The prediction score should be a Nx2 array')
+        if pred_score.shape[1] != 2:
+            pred_score = pred_score.T
     else: # default: sort by size
-        ui,uc = np.unique(pred_seg,return_counts=True)
+        ui,uc = unique_chunk(pred_seg, chunk_size = args.chunk_size)
         uc = uc[ui>0]
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
@@ -100,7 +98,7 @@ def main():
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng)
+    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng, args.chunk_size)
     
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
