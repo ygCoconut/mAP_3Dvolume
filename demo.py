@@ -61,7 +61,7 @@ def load_data(args):
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
-        if (pred_score.shape==2).any()
+        if np.any(pred_score.shape==2):
             raise ValueError('The prediction score should be a Nx2 array')
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T

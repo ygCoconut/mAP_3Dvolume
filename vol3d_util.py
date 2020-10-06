@@ -35,21 +35,23 @@ def readh5_handle(path, vol=''):
 def unique_chunk(seg, chunk_size=50):
     num_z = seg.shape[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
-    ui = None
-    uc = None
+    uc_arr = None
     for cid in range(num_chunk):
         ui_c, uc_c = np.unique(np.array(seg[cid * chunk_size : (cid + 1) * chunk_size]), return_counts = True)
-        if ui is None:
-            ui = ui_c
-            uc = uc_c
+        if uc_arr is None:
+            uc_arr = np.zeros(ui_c.max()+1, int)
+            uc_arr[ui_c] = uc_c
+            uc_len = len(uc_arr)
         else:
-            if ui.max() < ui_c.max():
-                ui, uc, ui_c, uc_c = ui_c, uc_c, ui, uc
-            uc[np.in1d(ui, ui_c)] += uc_c
-    return ui, uc
+            if uc_len <= ui_c.max():
+                uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len), int)])
+                uc_len = len(uc_arr)
+            uc_arr[ui_c] += uc_c
+    ui = np.where(uc_arr>0)[0]
+    return ui, uc_arr[ui]
 
 # 3. instance seg -> bbox
-def seg_bbox3d(seg, do_count=False, uid=None, chunk_size=250):
+def seg_bbox3d(seg, uid=None, chunk_size=250):
     """returns bounding box of segments"""
     sz = seg.shape
     assert len(sz)==3
@@ -59,40 +61,36 @@ def seg_bbox3d(seg, do_count=False, uid=None, chunk_size=250):
         uic = uic[uid>0]
         uid = uid[uid>0]
     um = int(uid.max())
-    out = np.zeros((1+um,7+do_count),dtype=np.uint32)
+    out = np.zeros((1+um,7),dtype=np.uint32)
     out[:,0] = np.arange(out.shape[0])
     out[:,1], out[:,3], out[:,5] = sz[0], sz[1], sz[2]
 
-    # for each slice
-    for zid in range(sz[0]):
-        if np.array(seg[zid]).max() > 0:
-            sid = np.unique(seg[zid])
+    num_chunk = (sz[0]+ chunk_size -1 ) // chunk_size
+    for chunk_id in range(num_chunk):
+        print('\t\t chunk %d' % chunk_id)
+        z0 = chunk_id * chunk_size
+        seg_c = np.array(seg[z0 : z0 + chunk_size])
+        # for each slice
+        for zid in np.where((seg_c>0).sum(axis=1).sum(axis=1)>0)[0]:
+            sid = np.unique(seg_c[zid])
             sid = sid[(sid>0)*(sid<=um)]
-            out[sid,1] = np.minimum(out[sid,1],zid)
-            out[sid,2] = np.maximum(out[sid,2],zid)
+            out[sid,1] = np.minimum(out[sid,1], z0 + zid)
+            out[sid,2] = np.maximum(out[sid,2], z0 + zid)
 
-    # for each row
-    for rid in range(sz[1]):
-        if np.array(seg[:, rid]).max() > 0:
-            sid = np.unique(seg[:,rid])
+        # for each row
+        for rid in np.where((seg_c>0).sum(axis=0).sum(axis=1)>0)[0]:
+            sid = np.unique(seg_c[:,rid])
             sid = sid[(sid>0)*(sid<=um)]
             out[sid,3] = np.minimum(out[sid,3],rid)
             out[sid,4] = np.maximum(out[sid,4],rid)
-    
-    # for each col
-    for cid in range(sz[2]):
-        if np.array(seg[:, :, cid]).max() > 0:
-            sid = np.unique(seg[:,:,cid])
+        
+        # for each col
+        for cid in np.where((seg_c>0).sum(axis=0).sum(axis=0)>0)[0]:
+            sid = np.unique(seg_c[:,:,cid])
             sid = sid[(sid>0)*(sid<=um)]
             out[sid,5] = np.minimum(out[sid,5],cid)
             out[sid,6] = np.maximum(out[sid,6],cid)
 
-    if do_count:
-        if uic is None:
-            ui, uc = unique_chunk(seg, chunk_size)
-        else:
-            ui, uc = uid, uic
-        out[ui[ui<=um],-1]=uc[ui<=um]
     return out[uid]
 
 def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
@@ -171,7 +169,7 @@ def seg_iou3d_sorted(pred, gt, score, areaRng = [0,1e10], chunk_size = 250):
     pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
     
-    result_p, result_fn = seg_iou3d(pred, gt, areaRng, todo_id=pred_id[pred_id_sorted], chunk_size)
+    result_p, result_fn = seg_iou3d(pred, gt, areaRng, pred_id[pred_id_sorted], chunk_size)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted
