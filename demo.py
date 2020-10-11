@@ -12,7 +12,7 @@ import numpy as np
 import h5py
 
 from vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou3d_sorted, readh5_handle, unique_chunk
+from vol3d_util import seg_iou3d_sorted, readh5_handle, unique_chunk, readh5
 
 
 ##### 1. I/O
@@ -61,7 +61,8 @@ def load_data(args):
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
-        if np.any(pred_score.shape==2):
+
+        if not np.any(pred_score.shape==2):
             raise ValueError('The prediction score should be a Nx2 array')
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T

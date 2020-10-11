@@ -98,6 +98,10 @@ def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
     # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
     pred_id, pred_sz = unique_chunk(pred, chunk_size)
+    if todo_id.max() > pred_id.max():
+        raise ValueError('The predict-score has bigger id (%d) than the prediction (%d)' % (todo_id.max(), pred_id.max()))
+
+
     pred_sz = pred_sz[pred_id > 0]
     pred_id = pred_id[pred_id > 0]
     predict_sz_rl = np.zeros(int(pred_id.max()) + 1,int)
