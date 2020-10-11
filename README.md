@@ -15,7 +15,7 @@ This repo contains a tool to evaluate the mean average precision score (mAP) of 
 - You can use one of the following two commands to install the required packages:
 ```
 conda install --yes --file requirements.txt
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 
 
