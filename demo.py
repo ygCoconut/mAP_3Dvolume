@@ -12,7 +12,7 @@ import numpy as np
 import h5py
 
 from vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou3d_sorted, readh5_handle, unique_chunk, readh5
+from vol3d_util import seg_iou3d_sorted, readh5_handle, readh5, unique_chunk
 
 
 ##### 1. I/O
@@ -121,4 +121,3 @@ def main():
         
 if __name__ == '__main__':
     main()
-
