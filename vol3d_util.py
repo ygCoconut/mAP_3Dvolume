@@ -33,6 +33,7 @@ def readh5_handle(path, vol=''):
     return fid[vol]
 
 def unique_chunk(seg, chunk_size=50):
+    # load unique segment ids and segment sizes (in voxels) chunk by chunk
     num_z = seg.shape[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     uc_arr = None
@@ -44,14 +45,14 @@ def unique_chunk(seg, chunk_size=50):
             uc_len = len(uc_arr)
         else:
             if uc_len <= ui_c.max():
-                uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len), int)])
+                uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len) + 1, int)]) #max + 1 for edge case (uc_len = ui_c.max())
                 uc_len = len(uc_arr)
             uc_arr[ui_c] += uc_c
     ui = np.where(uc_arr>0)[0]
     return ui, uc_arr[ui]
 
 # 3. instance seg -> bbox
-def seg_bbox3d(seg, uid=None, chunk_size=250):
+def seg_bbox3d(seg, uid=None, chunk_size=50):
     """returns bounding box of segments"""
     sz = seg.shape
     assert len(sz)==3
