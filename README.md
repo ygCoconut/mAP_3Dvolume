@@ -24,7 +24,7 @@ pip install -r requirements.txt
 ## How it works:
 Run the following command to use the tool:
 ```
-python demo.py -gt demo_data/lucchi_gt_test.h5 -p demo_data/lucchi_pred_UNet_label_test.h5 -ps demo_data/lucchi_pred_UNet_heatmap_test.h5 -de 1 -dt 1
+python demo.py -gt demo_data/lucchi_gt_test.h5 -p demo_data/lucchi_pred_UNet_label_test.h5
 ```
 
 The following steps will be executed by the script:
