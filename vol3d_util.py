@@ -22,15 +22,23 @@ def readh5(path, vol=''):
             vol = fid.keys()[0] 
     return np.array(fid[vol]).squeeze()
 
-def readh5_handle(path, vol=''):
+def readh5_handle(path, slices, vol=''):
     # do the first key
     fid = h5py.File(path, 'r')
     if vol == '': 
         if sys.version[0]=='3':
             vol = list(fid)[0]
         else: # python 2
-            vol = fid.keys()[0] 
-    return fid[vol]
+            vol = fid.keys()[0]
+
+    if (slices == np.array([0, -1])).all():
+        return fid[vol]    
+    else: 
+        try:
+            # args.slices '50, 350' will load from 50 to 349"
+            return fid[vol][slices[0]:slices[1]] #upper bound can be higher than
+        except:
+            print("lower slice has negative value")
 
 def unique_chunk(seg, chunk_size=50):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk

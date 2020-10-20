@@ -38,14 +38,30 @@ def get_args():
                        help='output txt for iou results')
     parser.add_argument('-de', '--do-eval', type = int, default = 1,
                        help='do evaluation')
+    parser.add_argument('-sl', '--slices', type = str, default = "-1",
+                       help="slices to load, example: -sl '50, 350' will load from 50 to 349")
+    
     args = parser.parse_args()
     
     return args
 
+
 def load_data(args):
     # load data arguments
-    pred_seg = readh5_handle(args.predict_seg)
-    gt_seg = readh5_handle(args.gt_seg)
+    if args.slices == -1:
+        slices = [0, -1]
+    else: # load specific slices only
+        try:
+            slices = np.fromstring(args.slices, sep = ",", dtype=int)
+             #test only 2 boundaries, boundary1<boundary2, and boundaries positive
+            if (slices.shape[0] != 2) or \
+                slices[0] > slices[1] or \
+                slices[0] < 0 or slices[1] < 0:
+                raise ValueError("please specify a valid slice range, ex: -sl '50, 350'")
+        except:
+            print("please specify a valid slice range, ex: -sl '50, 350'")
+    pred_seg = readh5_handle(args.predict_seg, slices)
+    gt_seg = readh5_handle(args.gt_seg, slices)
 
     # check shape match
     sz_gt = np.array(gt_seg.shape)
@@ -56,8 +72,12 @@ def load_data(args):
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
         if '.h5' in args.predict_score:
+            if slices != [0, -1]:
+                raise ValueError("With absent slices, instances might be missing")
             pred_score = readh5(args.predict_score)
         elif '.txt' in args.predict_score:
+            if slices != [0, -1]:
+                raise ValueError("With absent slices, instances might be missing")
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
