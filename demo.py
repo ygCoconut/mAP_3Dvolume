@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument('-de', '--do-eval', type = int, default = 1,
                        help='do evaluation')
     parser.add_argument('-sl', '--slices', type = str, default = "-1",
-                       help="slices to load, example: -sl '50, 350' will load from 50 to 349")
+                       help="slices to load, example: -sl '50, 350'")
     
     args = parser.parse_args()
     
@@ -48,7 +48,7 @@ def get_args():
 
 def load_data(args):
     # load data arguments
-    if args.slices == -1:
+    if args.slices == "-1":
         slices = [0, -1]
     else: # load specific slices only
         try:
