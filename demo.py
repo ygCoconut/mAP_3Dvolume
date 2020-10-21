@@ -57,9 +57,9 @@ def load_data(args):
             if (slices.shape[0] != 2) or \
                 slices[0] > slices[1] or \
                 slices[0] < 0 or slices[1] < 0:
-                raise ValueError("please specify a valid slice range, ex: -sl '50, 350'")
+                raise ValueError("\nspecify a valid slice range, ex: -sl '50, 350'\n")
         except:
-            print("please specify a valid slice range, ex: -sl '50, 350'")
+            print("\nplease specify a valid slice range, ex: -sl '50, 350'\n")
     pred_seg = readh5_handle(args.predict_seg, slices)
     gt_seg = readh5_handle(args.gt_seg, slices)
 
@@ -72,12 +72,12 @@ def load_data(args):
     if args.predict_score != '':
         # Nx2: pred_id, pred_sc
         if '.h5' in args.predict_score:
-            if slices != [0, -1]:
-                raise ValueError("With absent slices, instances might be missing")
+            if args.slices != "-1":
+                raise ValueError("\nWith absent slices, instances might be missing\n")
             pred_score = readh5(args.predict_score)
         elif '.txt' in args.predict_score:
-            if slices != [0, -1]:
-                raise ValueError("With absent slices, instances might be missing")
+            if args.slices != "-1":
+                raise ValueError("\nWith absent slices, instances might be missing\n")
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
