@@ -54,9 +54,9 @@ def load_data(args):
         try:
             slices = np.fromstring(args.slices, sep = ",", dtype=int)
              #test only 2 boundaries, boundary1<boundary2, and boundaries positive
-            if (slices.shape[0] != 2) or \
-                slices[0] > slices[1] or \
-                slices[0] < 0 or slices[1] < 0:
+            if (slices.shape[0] != 2):# or \
+#                 slices[0] > slices[1] or \
+#                 slices[0] < 0 or slices[1] < 0:
                 raise ValueError("please specify a valid slice range, ex: -sl '50, 350'")
         except:
             print("please specify a valid slice range, ex: -sl '50, 350'")
