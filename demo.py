@@ -87,6 +87,7 @@ def load_data(args):
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T
     else: # default: sort by size
+        # todo: make unique_chunk() handle the slices
         ui,uc = unique_chunk(pred_seg, chunk_size = args.chunk_size)
         uc = uc[ui>0]
         ui = ui[ui>0]
@@ -119,6 +120,7 @@ def main():
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
+    # todo: make seg_iou3d_sorted handle() slices
     result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng, args.chunk_size)
     
     stop_time = int(round(time.time() * 1000))
