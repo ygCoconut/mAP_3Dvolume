@@ -46,22 +46,10 @@ def get_args():
     return args
 
 
-def load_data(args):
+def load_data(args, slices):
     # load data arguments
-    if args.slices == "-1":
-        slices = [0, -1]
-    else: # load specific slices only
-        try:
-            slices = np.fromstring(args.slices, sep = ",", dtype=int)
-             #test only 2 boundaries, boundary1<boundary2, and boundaries positive
-            if (slices.shape[0] != 2) or \
-                slices[0] > slices[1] or \
-                slices[0] < 0 or slices[1] < 0:
-                raise ValueError("\nspecify a valid slice range, ex: -sl '50, 350'\n")
-        except:
-            print("\nplease specify a valid slice range, ex: -sl '50, 350'\n")
-    pred_seg = readh5_handle(args.predict_seg, slices)
-    gt_seg = readh5_handle(args.gt_seg, slices)
+    pred_seg = readh5_handle(args.predict_seg)
+    gt_seg = readh5_handle(args.gt_seg)
 
     # check shape match
     sz_gt = np.array(gt_seg.shape)
@@ -87,8 +75,7 @@ def load_data(args):
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T
     else: # default: sort by size
-        # todo: make unique_chunk() handle the slices
-        ui,uc = unique_chunk(pred_seg, chunk_size = args.chunk_size)
+        ui,uc = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size)
         uc = uc[ui>0]
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
@@ -116,12 +103,30 @@ def main():
     start_time = int(round(time.time() * 1000))
     print('\t1. Load data')
     args = get_args()
-    gt_seg, pred_seg, pred_score, areaRng = load_data(args)
+    
+    def _return_slices():
+        # check if args.slices is well defined and return slices array [slice1, sliceN]
+        if args.slices == "-1":
+            slices = [0, -1]
+        else: # load specific slices only
+            try:
+                slices = np.fromstring(args.slices, sep = ",", dtype=int)
+                 #test only 2 boundaries, boundary1<boundary2, and boundaries positive
+                if (slices.shape[0] != 2) or \
+                    slices[0] > slices[1] or \
+                    slices[0] < 0 or slices[1] < 0:
+                    raise ValueError("\nspecify a valid slice range, ex: -sl '50, 350'\n")
+            except:
+                print("\nplease specify a valid slice range, ex: -sl '50, 350'\n")
+        return slices
+        
+    slices = _return_slices()
+    
+    gt_seg, pred_seg, pred_score, areaRng = load_data(args, slices)
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
-    # todo: make seg_iou3d_sorted handle() slices
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, areaRng, args.chunk_size)
+    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size)
     
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )

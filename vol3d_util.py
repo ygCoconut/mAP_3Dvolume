@@ -22,7 +22,7 @@ def readh5(path, vol=''):
             vol = fid.keys()[0] 
     return np.array(fid[vol]).squeeze()
 
-def readh5_handle(path, slices, vol=''):
+def readh5_handle(path, vol=''):
     # do the first key
     fid = h5py.File(path, 'r')
     if vol == '': 
@@ -30,18 +30,24 @@ def readh5_handle(path, slices, vol=''):
             vol = list(fid)[0]
         else: # python 2
             vol = fid.keys()[0]
+            
+    return fid[vol]
 
-    num_slices = fid[vol].shape[0]
-    return fid[vol][slices[0]:(slices[1] % num_slices)+1]
+#     num_slices = fid[vol].shape[0]
+#     import pdb;pdb.set_trace()
+#     return fid[vol][slices[0]:(slices[1] % num_slices)+1]
 
 
-def unique_chunk(seg, chunk_size=50):
+def unique_chunk(seg, slices, chunk_size=50):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
-    num_z = seg.shape[0]
+#     import pdb; pdb.set_trace()
+    num_z = slices[1] - slices[0] if slices[1] != -1 else seg.shape[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
+    
     uc_arr = None
     for cid in range(num_chunk):
-        ui_c, uc_c = np.unique(np.array(seg[cid * chunk_size : (cid + 1) * chunk_size]), return_counts = True)
+        chunk = np.array(seg[cid * chunk_size + slices[0]: (cid + 1) * chunk_size + slices[0]])
+        ui_c, uc_c = np.unique(chunk, return_counts = True)
         if uc_arr is None:
             uc_arr = np.zeros(ui_c.max()+1, int)
             uc_arr[ui_c] = uc_c
@@ -55,13 +61,13 @@ def unique_chunk(seg, chunk_size=50):
     return ui, uc_arr[ui]
 
 # 3. instance seg -> bbox
-def seg_bbox3d(seg, uid=None, chunk_size=50):
+def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
     """returns bounding box of segments"""
     sz = seg.shape
     assert len(sz)==3
     uic = None
     if uid is None:
-        uid, uic = unique_chunk(seg, chunk_size)
+        uid, uic = unique_chunk(seg, slices, chunk_size)
         uic = uic[uid>0]
         uid = uid[uid>0]
     um = int(uid.max())
@@ -69,10 +75,12 @@ def seg_bbox3d(seg, uid=None, chunk_size=50):
     out[:,0] = np.arange(out.shape[0])
     out[:,1], out[:,3], out[:,5] = sz[0], sz[1], sz[2]
 
-    num_chunk = (sz[0]+ chunk_size -1 ) // chunk_size
+    # todo: check if seg is corrected here.
+    num_z = slices[1] - slices[0] if slices[1] != -1 else sz[0]
+    num_chunk = (num_z + chunk_size -1 ) // chunk_size
     for chunk_id in range(num_chunk):
         print('\t\t chunk %d' % chunk_id)
-        z0 = chunk_id * chunk_size
+        z0 = chunk_id * chunk_size + slices[0]
         seg_c = np.array(seg[z0 : z0 + chunk_size])
         # for each slice
         for zid in np.where((seg_c>0).sum(axis=1).sum(axis=1)>0)[0]:
@@ -97,11 +105,11 @@ def seg_bbox3d(seg, uid=None, chunk_size=50):
 
     return out[uid]
 
-def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
+def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
-    pred_id, pred_sz = unique_chunk(pred, chunk_size)
+    pred_id, pred_sz = unique_chunk(pred, slices, chunk_size)
     if todo_id.max() > pred_id.max():
         raise ValueError('The predict-score has bigger id (%d) than the prediction (%d)' % (todo_id.max(), pred_id.max()))
 
@@ -111,7 +119,7 @@ def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
     predict_sz_rl = np.zeros(int(pred_id.max()) + 1,int)
     predict_sz_rl[pred_id] = pred_sz
     
-    gt_id, gt_sz = unique_chunk(gt, chunk_size)
+    gt_id, gt_sz = unique_chunk(gt, slices, chunk_size)
     gt_sz = gt_sz[gt_id > 0]
     gt_id = gt_id[gt_id > 0]
     
@@ -122,7 +130,7 @@ def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
         todo_sz = predict_sz_rl[todo_id]
    
     print('\t compute bounding boxes')
-    bbs = seg_bbox3d(pred, uid = todo_id, chunk_size = chunk_size)[:,1:]    
+    bbs = seg_bbox3d(pred, slices, uid = todo_id, chunk_size = chunk_size)[:,1:]    
     
     result_p = np.zeros((len(todo_id), 2+3*areaRng.shape[0]), float)
     result_p[:,0] = todo_id
@@ -166,7 +174,7 @@ def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None, chunk_size=100):
     
     return result_p, result_fn
 
-def seg_iou3d_sorted(pred, gt, score, areaRng = [0,1e10], chunk_size = 250):
+def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 250):
     # pred_score: Nx2 [id, score]
     # 1. sort prediction by confidence score
     relabel = np.zeros(int(np.max(score[:,0])+1), float)
@@ -177,7 +185,7 @@ def seg_iou3d_sorted(pred, gt, score, areaRng = [0,1e10], chunk_size = 250):
     pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
     
-    result_p, result_fn = seg_iou3d(pred, gt, areaRng, pred_id[pred_id_sorted], chunk_size)
+    result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted
