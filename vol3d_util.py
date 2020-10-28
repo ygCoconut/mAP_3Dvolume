@@ -33,20 +33,17 @@ def readh5_handle(path, vol=''):
             
     return fid[vol]
 
-#     num_slices = fid[vol].shape[0]
-#     import pdb;pdb.set_trace()
-#     return fid[vol][slices[0]:(slices[1] % num_slices)+1]
-
 
 def unique_chunk(seg, slices, chunk_size=50):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
-#     import pdb; pdb.set_trace()
-    num_z = slices[1] - slices[0] if slices[1] != -1 else seg.shape[0]
+    num_z = slices[1] - slices[0] + 1 if slices[1] != -1 else seg.shape[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     
     uc_arr = None
     for cid in range(num_chunk):
-        chunk = np.array(seg[cid * chunk_size + slices[0]: (cid + 1) * chunk_size + slices[0]])
+        # compute max index, modulo takes care of slices[1] = -1
+        max_idx = min([(cid + 1) * chunk_size + slices[0], slices[1] %  seg.shape[0]+ 1])
+        chunk = np.array(seg[cid * chunk_size + slices[0]: max_idx])
         ui_c, uc_c = np.unique(chunk, return_counts = True)
         if uc_arr is None:
             uc_arr = np.zeros(ui_c.max()+1, int)
@@ -75,13 +72,14 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
     out[:,0] = np.arange(out.shape[0])
     out[:,1], out[:,3], out[:,5] = sz[0], sz[1], sz[2]
 
-    # todo: check if seg is corrected here.
-    num_z = slices[1] - slices[0] if slices[1] != -1 else sz[0]
+    num_z = slices[1] - slices[0] + 1 if slices[1] != -1 else sz[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     for chunk_id in range(num_chunk):
         print('\t\t chunk %d' % chunk_id)
         z0 = chunk_id * chunk_size + slices[0]
-        seg_c = np.array(seg[z0 : z0 + chunk_size])
+        # compute max index, modulo takes care of slices[1] = -1
+        max_idx = min([z0 + chunk_size, slices[1] %  sz[0]+ 1])
+        seg_c = np.array(seg[z0 : max_idx])
         # for each slice
         for zid in np.where((seg_c>0).sum(axis=1).sum(axis=1)>0)[0]:
             sid = np.unique(seg_c[zid])

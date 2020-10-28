@@ -127,7 +127,6 @@ def main():
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
     result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size)
-    
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
