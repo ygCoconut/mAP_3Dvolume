@@ -1,7 +1,7 @@
 # mAP_3Dvolume
 
 ## Introduction:
-This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. This tool uses the cocoapi approach for mAP evaluation. The master branch runs super fast. If you wish to test out the master branch, you can run the legacy branch (https://github.com/ygCoconut/mAP_3Dvolume/tree/legacy). 
+This repo contains a tool to evaluate the mean average precision score (mAP) of 3D segmentation volumes. This tool uses the cocoapi approach for mAP evaluation. The master branch runs super fast. If you wish to test out the master branch, you can run the [legacy branch](https://github.com/ygCoconut/mAP_3Dvolume/tree/legacy). 
 
 ## Important notes:
 - The tool supposes you load arrays saved as h5 files. Feel free to change the loadh5 function to load something else.
