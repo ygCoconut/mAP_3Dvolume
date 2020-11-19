@@ -364,7 +364,10 @@ def seg_iou3d(pred, gt, areaRng=np.array([]), todo_id=None):
 def seg_iou3d_sorted(pred, gt, score, areaRng=[0,1e10]):
     # pred_score: Nx2 [id, score]
     # 1. sort prediction by confidence score
-    relabel = np.zeros(int(np.max(score[:,0])+1), float)
+    try:
+        relabel = np.zeros(int(np.max(score[:,0])+1), float)
+    except:
+        print("\n\nMake sure your data has no error !\n\n")
     relabel[score[:,0].astype(int)] = score[:,1]
     
     # 1. sort the prediction by confidence
