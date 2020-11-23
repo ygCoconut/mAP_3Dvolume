@@ -103,7 +103,7 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
 
     return out[uid]
 
-def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100):
+def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100, crumb_size = -1):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
@@ -120,6 +120,9 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     gt_id, gt_sz = unique_chunk(gt, slices, chunk_size)
     gt_sz = gt_sz[gt_id > 0]
     gt_id = gt_id[gt_id > 0]
+    if crumb_size > -1:
+        gt_id = gt_id[gt_sz > crumb_size]
+        gt_sz = gt_sz[gt_sz > crumb_size]
     
     if todo_id is None:
         todo_id = pred_id
@@ -172,7 +175,7 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     
     return result_p, result_fn
 
-def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 250):
+def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 250, crumb_size = -1):
     # pred_score: Nx2 [id, score]
     # 1. sort prediction by confidence score
     relabel = np.zeros(int(np.max(score[:,0])+1), float)
@@ -183,7 +186,7 @@ def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 2
     pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
     
-    result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size)
+    result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size, crumb_size)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted

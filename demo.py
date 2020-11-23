@@ -26,8 +26,10 @@ def get_args():
     # either input the pre-compute prediction score
     parser.add_argument('-ps', '--predict-score', type = str, default = '',
                        help='path to a txt or h5 file containing the confidence score for each prediction')
-    parser.add_argument('-th', '--threshold', type = str, default = '5e3, 1.5e4',
+    parser.add_argument('-th', '--threshold', type = str, default = '5e3, 3e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
+    parser.add_argument('-thc', '--threshold-crumb', type = str, default = '2e3',
+                       help='throw away the imcomplete small mito in the ground truth for a meaningful evaluation')
 
     parser.add_argument('-cz', '--chunk-size', type = int, default = 250,
                        help='for memory-efficient computation, how many slices to load')
@@ -126,7 +128,7 @@ def main():
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size)
+    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size, args.threshold_crumb)
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
