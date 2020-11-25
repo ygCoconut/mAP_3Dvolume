@@ -121,8 +121,13 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     gt_sz = gt_sz[gt_id > 0]
     gt_id = gt_id[gt_id > 0]
     if crumb_size > -1:
-        gt_id = gt_id[gt_sz > crumb_size]
-        gt_sz = gt_sz[gt_sz > crumb_size]
+        gt_bid = gt_id[gt_sz < crumb_size]
+        if len(gt_bid) > 0: 
+            rl_gt = np.zeros(1 + gt_id.max(), gt_id.dtype)
+            gt_id = gt_id[gt_sz >= crumb_size]
+            gt_sz = gt_sz[gt_sz >= crumb_size]
+            rl_gt[gt_id] = gt_id
+            gt = rl_gt[gt]
     
     if todo_id is None:
         todo_id = pred_id
