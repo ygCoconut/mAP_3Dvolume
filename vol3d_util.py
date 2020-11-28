@@ -36,13 +36,14 @@ def readh5_handle(path, vol=''):
 
 def unique_chunk(seg, slices, chunk_size=50):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
-    num_z = slices[1] - slices[0] + 1 if slices[1] != -1 else seg.shape[0]
+    slices[1] = seg.shape[0] if slices[1] == -1
+    num_z = slices[1] - slices[0] + 1
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     
     uc_arr = None
     for cid in range(num_chunk):
         # compute max index, modulo takes care of slices[1] = -1
-        max_idx = min([(cid + 1) * chunk_size + slices[0], slices[1] %  seg.shape[0]+ 1])
+        max_idx = min([(cid + 1) * chunk_size + slices[0], slices[1]])
         chunk = np.array(seg[cid * chunk_size + slices[0]: max_idx])
         ui_c, uc_c = np.unique(chunk, return_counts = True)
         if uc_arr is None:
@@ -51,6 +52,7 @@ def unique_chunk(seg, slices, chunk_size=50):
             uc_len = len(uc_arr)
         else:
             if uc_len <= ui_c.max():
+                # at least double the length
                 uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len) + 1, int)]) #max + 1 for edge case (uc_len = ui_c.max())
                 uc_len = len(uc_arr)
             uc_arr[ui_c] += uc_c
@@ -120,14 +122,10 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     gt_id, gt_sz = unique_chunk(gt, slices, chunk_size)
     gt_sz = gt_sz[gt_id > 0]
     gt_id = gt_id[gt_id > 0]
+    rl_gt = None
     if crumb_size > -1:
-        gt_bid = gt_id[gt_sz < crumb_size]
-        if len(gt_bid) > 0: 
-            rl_gt = np.zeros(1 + gt_id.max(), gt_id.dtype)
-            gt_id = gt_id[gt_sz >= crumb_size]
-            gt_sz = gt_sz[gt_sz >= crumb_size]
-            rl_gt[gt_id] = gt_id
-            gt = rl_gt[gt]
+        gt_id = gt_id[gt_sz >= crumb_size]
+        gt_sz = gt_sz[gt_sz >= crumb_size]
     
     if todo_id is None:
         todo_id = pred_id

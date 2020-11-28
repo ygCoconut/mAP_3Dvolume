@@ -63,11 +63,11 @@ def load_data(args, slices):
         # Nx2: pred_id, pred_sc
         if '.h5' in args.predict_score:
             if args.slices != "-1":
-                raise ValueError("\nWith absent slices, instances might be missing\n")
+                print("\nWith absent slices, instances might be missing\n")
             pred_score = readh5(args.predict_score)
         elif '.txt' in args.predict_score:
             if args.slices != "-1":
-                raise ValueError("\nWith absent slices, instances might be missing\n")
+                print("\nWith absent slices, instances might be missing\n")
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
