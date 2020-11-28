@@ -36,8 +36,8 @@ def readh5_handle(path, vol=''):
 
 def unique_chunk(seg, slices, chunk_size=50):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
-    slices[1] = seg.shape[0] if slices[1] == -1
-    num_z = slices[1] - slices[0] + 1
+    if slices[1] == -1: slices[1] = seg.shape[0] 
+    num_z = slices[1] - slices[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     
     uc_arr = None
