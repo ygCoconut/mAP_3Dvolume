@@ -148,8 +148,9 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
         # Find intersection of pred and gt instance inside bbox, call intersection match_id
         bb = bbs[j]
         match_id, match_sz=np.unique(np.array(gt[bb[0]:bb[1]+1,bb[2]:bb[3]+1])*(np.array(pred[bb[0]:bb[1]+1,bb[2]:bb[3]+1])==i),return_counts=True)
-        match_sz=match_sz[match_id>0] # get intersection counts
-        match_id=match_id[match_id>0] # get intersection ids        
+        match_id_g = np.isin(match_id, gt_id)
+        match_sz = match_sz[match_id_g] # get intersection counts
+        match_id = match_id[match_id_g] # get intersection ids        
         if len(match_id)>0:
             # get count of all preds inside bbox (assume gt_id,match_id are of ascending order)
             gt_sz_match = gt_sz[np.isin(gt_id, match_id)]
