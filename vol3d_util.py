@@ -34,30 +34,39 @@ def readh5_handle(path, vol=''):
     return fid[vol]
 
 
-def unique_chunk(seg, slices, chunk_size=50):
+def unique_chunk(seg, slices, chunk_size = 50, do_count = True):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
-    if slices[1] == -1: slices[1] = seg.shape[0] 
     num_z = slices[1] - slices[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     
     uc_arr = None
+    ui = []
     for cid in range(num_chunk):
         # compute max index, modulo takes care of slices[1] = -1
         max_idx = min([(cid + 1) * chunk_size + slices[0], slices[1]])
         chunk = np.array(seg[cid * chunk_size + slices[0]: max_idx])
-        ui_c, uc_c = np.unique(chunk, return_counts = True)
-        if uc_arr is None:
-            uc_arr = np.zeros(ui_c.max()+1, int)
-            uc_arr[ui_c] = uc_c
-            uc_len = len(uc_arr)
-        else:
-            if uc_len <= ui_c.max():
-                # at least double the length
-                uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len) + 1, int)]) #max + 1 for edge case (uc_len = ui_c.max())
+
+        if do_count:
+            ui_c, uc_c = np.unique(chunk, return_counts = True)
+            if uc_arr is None:
+                uc_arr = np.zeros(ui_c.max()+1, int)
+                uc_arr[ui_c] = uc_c
                 uc_len = len(uc_arr)
-            uc_arr[ui_c] += uc_c
-    ui = np.where(uc_arr>0)[0]
-    return ui, uc_arr[ui]
+            else:
+                if uc_len <= ui_c.max():
+                    # at least double the length
+                    uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len) + 1, int)]) #max + 1 for edge case (uc_len = ui_c.max())
+                    uc_len = len(uc_arr)
+                uc_arr[ui_c] += uc_c
+        else:
+            ui = np.unique(np.hstack([ui, np.unique(chunk)]))
+
+    if do_count:
+        ui = np.where(uc_arr>0)[0]
+        return ui, uc_arr[ui]
+    else:
+        return ui
+
 
 # 3. instance seg -> bbox
 def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
@@ -74,13 +83,13 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
     out[:,0] = np.arange(out.shape[0])
     out[:,1], out[:,3], out[:,5] = sz[0], sz[1], sz[2]
 
-    num_z = slices[1] - slices[0] + 1 if slices[1] != -1 else sz[0]
+    num_z = slices[1] - slices[0]
     num_chunk = (num_z + chunk_size -1 ) // chunk_size
     for chunk_id in range(num_chunk):
         print('\t\t chunk %d' % chunk_id)
         z0 = chunk_id * chunk_size + slices[0]
         # compute max index, modulo takes care of slices[1] = -1
-        max_idx = min([z0 + chunk_size, slices[1] %  sz[0]+ 1])
+        max_idx = min([z0 + chunk_size, slices[1]])
         seg_c = np.array(seg[z0 : max_idx])
         # for each slice
         for zid in np.where((seg_c>0).sum(axis=1).sum(axis=1)>0)[0]:
@@ -102,7 +111,6 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
             sid = sid[(sid>0)*(sid<=um)]
             out[sid,5] = np.minimum(out[sid,5],cid)
             out[sid,6] = np.maximum(out[sid,6],cid)
-
     return out[uid]
 
 def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100, crumb_size = -1):

@@ -28,7 +28,7 @@ def get_args():
                        help='path to a txt or h5 file containing the confidence score for each prediction')
     parser.add_argument('-th', '--threshold', type = str, default = '5e3, 3e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
-    parser.add_argument('-thc', '--threshold-crumb', type = str, default = '2e3',
+    parser.add_argument('-thc', '--threshold-crumb', type = int, default = 2000,
                        help='throw away the imcomplete small mito in the ground truth for a meaningful evaluation')
 
     parser.add_argument('-cz', '--chunk-size', type = int, default = 250,
@@ -52,6 +52,8 @@ def load_data(args, slices):
     # load data arguments
     pred_seg = readh5_handle(args.predict_seg)
     gt_seg = readh5_handle(args.gt_seg)
+    if slices[1] == -1:
+        slices[1] = gt_seg.shape[0]
 
     # check shape match
     sz_gt = np.array(gt_seg.shape)
@@ -60,14 +62,11 @@ def load_data(args, slices):
         raise ValueError('Warning: size mismatch. gt: {}, pred: '.format(sz_gt,sz_pred))
 
     if args.predict_score != '':
+        print('\t\t Load prediction score')
         # Nx2: pred_id, pred_sc
         if '.h5' in args.predict_score:
-            if args.slices != "-1":
-                print("\nWith absent slices, instances might be missing\n")
             pred_score = readh5(args.predict_score)
         elif '.txt' in args.predict_score:
-            if args.slices != "-1":
-                print("\nWith absent slices, instances might be missing\n")
             pred_score = np.loadtxt(args.predict_score)
         else:
             raise ValueError('Unknown file format for the prediction score')
@@ -76,13 +75,22 @@ def load_data(args, slices):
             raise ValueError('The prediction score should be a Nx2 array')
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T
-    else: # default: sort by size
+    else: # default: same weight
+        print('\t\t Assign prediction score')
+        ui = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size, do_count = False)
+        ui = ui[ui>0]
+        pred_score = np.ones([len(ui),2],int)
+        pred_score[:,0] = ui
+
+        # alternative: sort by size
+        """
         ui,uc = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size)
         uc = uc[ui>0]
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
         pred_score[:,1] = uc
+        """
 
     thres = np.fromstring(args.threshold, sep = ",")
     areaRng = np.zeros((len(thres)+2,2),int)
@@ -90,7 +98,7 @@ def load_data(args, slices):
     areaRng[-1,1] = 1e10
     areaRng[2:,0] = thres
     areaRng[1:-1,1] = thres
-    return gt_seg, pred_seg, pred_score, areaRng
+    return gt_seg, pred_seg, pred_score, areaRng, slices
 
 def main():
     """ 
@@ -124,7 +132,7 @@ def main():
         
     slices = _return_slices()
     
-    gt_seg, pred_seg, pred_score, areaRng = load_data(args, slices)
+    gt_seg, pred_seg, pred_score, areaRng, slices = load_data(args, slices)
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
