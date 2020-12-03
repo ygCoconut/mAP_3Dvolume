@@ -75,22 +75,23 @@ def load_data(args, slices):
             raise ValueError('The prediction score should be a Nx2 array')
         if pred_score.shape[1] != 2:
             pred_score = pred_score.T
-    else: # default: same weight
+    else: # default
         print('\t\t Assign prediction score')
+        # assign same weight
+        """
         ui = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size, do_count = False)
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
+        """
 
         # alternative: sort by size
-        """
         ui,uc = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size)
         uc = uc[ui>0]
         ui = ui[ui>0]
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
         pred_score[:,1] = uc
-        """
 
     thres = np.fromstring(args.threshold, sep = ",")
     areaRng = np.zeros((len(thres)+2,2),int)
@@ -150,7 +151,6 @@ def main():
     if args.do_eval > 0:
         print('start evaluation')        
         #Evaluation
-        #v3dEval.params.areaRng = [[0, 1e10], [0, 1e5], [1e5, 5e5], [5e5, 1e10]]
         v3dEval.params.areaRng = areaRng
         v3dEval.accumulate()
         v3dEval.summarize()

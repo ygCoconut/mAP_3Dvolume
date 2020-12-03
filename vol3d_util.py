@@ -34,6 +34,17 @@ def readh5_handle(path, vol=''):
     return fid[vol]
 
 
+def getQueryCount(ui,uc,qid):
+    # memory efficient
+    ui_r = [ui[ui>0].min(),max(ui.max(),qid.max())]
+    rl = np.zeros(1+int(ui_r[1]-ui_r[0]),uc.dtype)
+    rl[ui[ui>0]-ui_r[0]] = uc[ui>0]
+
+    cc = np.zeros(qid.shape,uc.dtype)
+    gid = np.logical_and(qid>=ui_r[0], qid<=ui_r[1])
+    cc[gid] = rl[qid[gid]-ui_r[0]]
+    return cc
+
 def unique_chunk(seg, slices, chunk_size = 50, do_count = True):
     # load unique segment ids and segment sizes (in voxels) chunk by chunk
     num_z = slices[1] - slices[0]
@@ -45,6 +56,40 @@ def unique_chunk(seg, slices, chunk_size = 50, do_count = True):
         # compute max index, modulo takes care of slices[1] = -1
         max_idx = min([(cid + 1) * chunk_size + slices[0], slices[1]])
         chunk = np.array(seg[cid * chunk_size + slices[0]: max_idx])
+
+        if do_count:
+            ui_c, uc_c = np.unique(chunk, return_counts = True)
+            if uc_arr is None:
+                uc_arr = np.zeros(ui_c.max()+1, int)
+                uc_arr[ui_c] = uc_c
+                uc_len = len(uc_arr)
+            else:
+                if uc_len <= ui_c.max():
+                    # at least double the length
+                    uc_arr = np.hstack([uc_arr, np.zeros(max(ui_c.max()-uc_len, uc_len) + 1, int)]) #max + 1 for edge case (uc_len = ui_c.max())
+                    uc_len = len(uc_arr)
+                uc_arr[ui_c] += uc_c
+        else:
+            ui = np.unique(np.hstack([ui, np.unique(chunk)]))
+
+    if do_count:
+        ui = np.where(uc_arr>0)[0]
+        return ui, uc_arr[ui]
+    else:
+        return ui
+
+def unique_chunks_bbox(seg1, seg2, seg2_val, bbox, chunk_size = 50, do_count = True):
+    # load unique segment ids and segment sizes (in voxels) chunk by chunk
+    num_z = bbox[1] - bbox[0]
+    num_chunk = (num_z + chunk_size -1 ) // chunk_size
+    
+    uc_arr = None
+    ui = []
+    for cid in range(num_chunk):
+        # compute max index, modulo takes care of slices[1] = -1
+        max_idx = min([(cid + 1) * chunk_size + bbox[0], bbox[1]])
+        chunk = np.array(seg1[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]])
+        chunk = chunk * (np.array(seg2[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]]) == seg2_val)
 
         if do_count:
             ui_c, uc_c = np.unique(chunk, return_counts = True)
@@ -111,6 +156,8 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
             sid = sid[(sid>0)*(sid<=um)]
             out[sid,5] = np.minimum(out[sid,5],cid)
             out[sid,6] = np.maximum(out[sid,6],cid)
+    # max + 1
+    out[:,2::2] += 1
     return out[uid]
 
 def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100, crumb_size = -1):
@@ -155,13 +202,15 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     for j,i in tqdm(enumerate(todo_id)):
         # Find intersection of pred and gt instance inside bbox, call intersection match_id
         bb = bbs[j]
-        match_id, match_sz=np.unique(np.array(gt[bb[0]:bb[1]+1,bb[2]:bb[3]+1])*(np.array(pred[bb[0]:bb[1]+1,bb[2]:bb[3]+1])==i),return_counts=True)
+        # can be big memory
+        #match_id, match_sz=np.unique(np.array(gt[bb[0]:bb[1], bb[2]:bb[3], bb[4]:bb[5]])*(np.array(pred[bb[0]:bb[1],bb[2]:bb[3], bb[4]:bb[5]])==i),return_counts=True)
+        match_id, match_sz = unique_chunks_bbox(gt, pred, i, bb, chunk_size)
         match_id_g = np.isin(match_id, gt_id)
         match_sz = match_sz[match_id_g] # get intersection counts
         match_id = match_id[match_id_g] # get intersection ids        
         if len(match_id)>0:
             # get count of all preds inside bbox (assume gt_id,match_id are of ascending order)
-            gt_sz_match = gt_sz[np.isin(gt_id, match_id)]
+            gt_sz_match = getQueryCount(gt_id, gt_sz, match_id)
             ious = match_sz.astype(float)/(todo_sz[j] + gt_sz_match - match_sz) #all possible iou combinations of bbox ids are contained
             
             for r in range(areaRng.shape[0]): # fill up all, then s, m, l
