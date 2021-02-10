@@ -219,14 +219,14 @@ class VOL3Deval:
                 s = self.eval['precision']
                 # IoU
                 if iouThr is not None:
-                    t = np.where(iouThr == p.iouThrs)[0]
+                    t = np.where(p.iouThrs == iouThr)[0]
                     s = s[t]
                 s = s[:,:,aind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
-                    t = np.where(iouThr == p.iouThrs)[0]
+                    t = np.where(p.iouThrs == iouThr)[0]
                     s = s[t]
                 s = s[:,aind]
             if len(s[s>-1])==0:
@@ -247,9 +247,11 @@ class VOL3Deval:
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, iouThr=.9)#, maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, iouThr=.95)#, maxDets=self.params.maxDets[2])
+            #stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            #stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            #stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
             # no recall
             """
             stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
@@ -292,8 +294,8 @@ class Params:
     '''
     def setDetParams(self):
     	# np.arange causes trouble.  the data point on arange is slightly larger than the true
-        self.iouThrs = np.linspace(.5, 0.95, int(np.round((0.95 - .5) / .05) + 1), endpoint=True)
-        self.recThrs = np.linspace(.0, 1.00, int(np.round((1.00 - .0) / .01) + 1), endpoint=True)
+        self.iouThrs = 0.5 + 0.05 * np.arange(0,10)
+        self.recThrs = 0.01 * np.arange(0,101)
         self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
 

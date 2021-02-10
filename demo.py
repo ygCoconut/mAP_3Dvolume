@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument('-cz', '--chunk-size', type = int, default = 250,
                        help='for memory-efficient computation, how many slices to load')
 
-    parser.add_argument('-o', '--output-name', type = str, default = 'map_output',
+    parser.add_argument('-o', '--output-name', type = str, default = '',
                        help='output name prefix')
     parser.add_argument('-dt', '--do-txt', type = int, default = 1,
                        help='output txt for iou results')
