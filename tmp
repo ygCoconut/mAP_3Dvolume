@@ -1,7 +1,0 @@
-sa2 evalmito
-
-python /n/pfister_lab2/Lab/donglai/lib/seg/mAP_3Dvolume/demo.py -gt eval/ground-truth/0_human_gt_stack.h5 -p eval/test/0_human_instance_seg_pred.h5 -th 312,1875 -thc 125
-
-python /n/pfister_lab2/Lab/donglai/lib/seg/mAP_3Dvolume/demo.py -gt eval/ground-truth/0_human_gt_stack.h5 -p eval/ground-truth/0_human_gt_stack.h5 -th 312,1875 -thc 125 -o gt
-
-python /n/pfister_lab2/Lab/donglai/lib/seg/mAP_3Dvolume/demo.py -gt db/export/rat_final_v2_fix_vast2_test_out_30nm.h5 -p eval/test/0_human_instance_seg_pred.h5
