@@ -1,7 +1,6 @@
 import sys
 import numpy as np
 import h5py
-import cv2
 from tqdm import tqdm
 
 ####

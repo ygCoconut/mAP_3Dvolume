@@ -219,14 +219,16 @@ class VOL3Deval:
                 s = self.eval['precision']
                 # IoU
                 if iouThr is not None:
-                    t = np.where(p.iouThrs == iouThr)[0]
+                    # avoid floating pt issue
+                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
                     s = s[t]
                 s = s[:,:,aind]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
                 if iouThr is not None:
-                    t = np.where(p.iouThrs == iouThr)[0]
+                    # avoid floating pt issue
+                    t = np.where(np.abs(p.iouThrs - iouThr) < 1e-5)[0]
                     s = s[t]
                 s = s[:,aind]
             if len(s[s>-1])==0:
@@ -248,7 +250,6 @@ class VOL3Deval:
             stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
             stats[3] = _summarize(1, iouThr=.9)#, maxDets=self.params.maxDets[2])
-            stats[4] = _summarize(1, iouThr=.95)#, maxDets=self.params.maxDets[2])
             #stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
             #stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
             #stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
