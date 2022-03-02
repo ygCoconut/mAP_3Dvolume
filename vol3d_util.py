@@ -84,11 +84,15 @@ def unique_chunks_bbox(seg1, seg2, seg2_val, bbox, chunk_size = 50, do_count = T
     
     uc_arr = None
     ui = []
+    seg2_count = 0
     for cid in range(num_chunk):
         # compute max index, modulo takes care of slices[1] = -1
         max_idx = min([(cid + 1) * chunk_size + bbox[0], bbox[1]])
-        chunk = np.array(seg1[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]])
-        chunk = chunk * (np.array(seg2[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]]) == seg2_val)
+        chunk1 = np.array(seg1[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]])
+        chunk2 = (np.array(seg2[cid * chunk_size + bbox[0]:max_idx, bbox[2]:bbox[3], bbox[4]:bbox[5]]) == seg2_val)
+
+        seg2_count += chunk2.sum()
+        chunk1 = chunk1 * chunk2
 
         if do_count:
             ui_c, uc_c = np.unique(chunk, return_counts = True)
@@ -107,9 +111,9 @@ def unique_chunks_bbox(seg1, seg2, seg2_val, bbox, chunk_size = 50, do_count = T
 
     if do_count:
         ui = np.where(uc_arr>0)[0]
-        return ui, uc_arr[ui]
+        return ui, uc_arr[ui], seg2_count
     else:
-        return ui
+        return ui, seg2_count
 
 
 # 3. instance seg -> bbox
@@ -159,25 +163,39 @@ def seg_bbox3d(seg, slices, uid=None, chunk_size=50):
     out[:,2::2] += 1
     return out[uid]
 
-def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100, crumb_size = -1):
+def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=100, crumb_size = -1, pred_bbox=None, gt_bbox=None):
     # returns the matching pairs of ground truth IDs and prediction IDs, as well as the IoU of each pair.
     # (pred,gt)
     # return: id_1,id_2,size_1,size_2,iou
-    pred_id, pred_sz = unique_chunk(pred, slices, chunk_size)
+    if pred_bbox is None:
+        pred_id, pred_sz = unique_chunk(pred, slices, chunk_size)
+        # remove zero seg-id
+        pred_sz = pred_sz[pred_id > 0]
+        pred_id = pred_id[pred_id > 0]
+    else:
+        pred_id = pred_bbox[:, 0]
+        pred_sz = None
+        if pred_bbox.shape[1]==8:
+            pred_sz = pred_bbox[:, -1]
+        # okay not to have it as it can be computed later
     if todo_id.max() > pred_id.max():
         raise ValueError('The predict-score has bigger id (%d) than the prediction (%d)' % (todo_id.max(), pred_id.max()))
 
-
-    pred_sz = pred_sz[pred_id > 0]
-    pred_id = pred_id[pred_id > 0]
     predict_sz_rl = np.zeros(int(pred_id.max()) + 1,int)
-    predict_sz_rl[pred_id] = pred_sz
+    if pred_sz is not None:
+        predict_sz_rl[pred_id] = pred_sz
     
-    gt_id, gt_sz = unique_chunk(gt, slices, chunk_size)
-    gt_sz = gt_sz[gt_id > 0]
-    gt_id = gt_id[gt_id > 0]
+    if gt_bbox is None or gt_bbox.shape[1]!=8:
+        # input gt_bbox has to have volume, o/w recompute it
+        # some gt can be huge and we need to do the chunk anyway
+        gt_id, gt_sz = unique_chunk(gt, slices, chunk_size)
+        gt_sz = gt_sz[gt_id > 0]
+        gt_id = gt_id[gt_id > 0]
+    else:
+        gt_id = gt_bbox[:, 0]
+        gt_sz = gt_bbox[:, -1]
     rl_gt = None
-    if crumb_size > -1:
+    if crumb_size > -1 and gt_sz is not None:
         gt_id = gt_id[gt_sz >= crumb_size]
         gt_sz = gt_sz[gt_sz >= crumb_size]
     
@@ -186,9 +204,10 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
         todo_sz = pred_sz
     else:
         todo_sz = predict_sz_rl[todo_id]
-   
-    print('\t compute bounding boxes')
-    bbs = seg_bbox3d(pred, slices, uid = todo_id, chunk_size = chunk_size)[:,1:]    
+    
+    if pred_bbox is None:
+        print('\t compute bounding boxes')
+        pred_bbox = seg_bbox3d(pred, slices, uid = todo_id, chunk_size = chunk_size)[:,1:]    
     
     result_p = np.zeros((len(todo_id), 2+3*areaRng.shape[0]), float)
     result_p[:,0] = todo_id
@@ -200,10 +219,12 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     print('\t compute iou matching')
     for j,i in tqdm(enumerate(todo_id)):
         # Find intersection of pred and gt instance inside bbox, call intersection match_id
-        bb = bbs[j]
+        bb = pred_bbox[j]
         # can be big memory
         #match_id, match_sz=np.unique(np.array(gt[bb[0]:bb[1], bb[2]:bb[3], bb[4]:bb[5]])*(np.array(pred[bb[0]:bb[1],bb[2]:bb[3], bb[4]:bb[5]])==i),return_counts=True)
-        match_id, match_sz = unique_chunks_bbox(gt, pred, i, bb, chunk_size)
+        match_id, match_sz, pred_sz_i  = unique_chunks_bbox(gt, pred, i, bb, chunk_size)
+        # in case the pred_bbox doesn't have size computed
+        predict_sz_rl[i] = pred_sz_i
         match_id_g = np.isin(match_id, gt_id)
         match_sz = match_sz[match_id_g] # get intersection counts
         match_id = match_id[match_id_g] # get intersection ids        
@@ -235,7 +256,8 @@ def seg_iou3d(pred, gt, slices, areaRng=np.array([]), todo_id=None, chunk_size=1
     
     return result_p, result_fn
 
-def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 250, crumb_size = -1):
+def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 250, crumb_size = -1, pred_bbox=None, gt_bbox=None):
+    # pred_bbox: precomputed if needed
     # pred_score: Nx2 [id, score]
     # 1. sort prediction by confidence score
     relabel = np.zeros(int(np.max(score[:,0])+1), float)
@@ -246,7 +268,7 @@ def seg_iou3d_sorted(pred, gt, score, slices, areaRng = [0,1e10], chunk_size = 2
     pred_id = pred_id[pred_id>0]
     pred_id_sorted = np.argsort(-relabel[pred_id])
     
-    result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size, crumb_size)
+    result_p, result_fn = seg_iou3d(pred, gt, slices, areaRng, pred_id[pred_id_sorted], chunk_size, crumb_size, pred_bbox, gt_bbox)
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted

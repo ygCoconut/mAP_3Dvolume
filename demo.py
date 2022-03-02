@@ -20,12 +20,15 @@ def get_args():
     parser = argparse.ArgumentParser(description = 'Evaluate the mean average precision score (mAP) of 3D segmentation volumes')
     parser.add_argument('-gt', '--gt-seg', type = str, default = '~/my_ndarray.h5',
                        help='path to ground truth segmentation result')
-
+    parser.add_argument('-gtb', '--gt-bbox', type = str, default = '',
+                       help='path to a txt containing the (seg id, bounding box, volume) for each gt')
     parser.add_argument('-p', '--predict-seg', type = str, default = '~/my_ndarray.h5',
                        help='path to predicted instance segmentation result')
     # either input the pre-compute prediction score
     parser.add_argument('-ps', '--predict-score', type = str, default = '',
                        help='path to a txt or h5 file containing the confidence score for each prediction')
+    parser.add_argument('-pb', '--predict-bbox', type = str, default = '',
+                       help='path to a txt containing the (seg id, bounding box, volume[optional]) for each prediction')
     parser.add_argument('-th', '--threshold', type = str, default = '5e3, 3e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
     parser.add_argument('-thc', '--threshold-crumb', type = int, default = 2000,
@@ -54,6 +57,11 @@ def load_data(args, slices):
     gt_seg = readh5_handle(args.gt_seg)
     if slices[1] == -1:
         slices[1] = gt_seg.shape[0]
+    pred_bbox, gt_bbox = None, None
+    if args.pred_bbox != '':
+        pred_bbox = np.loadtxt(args.pred_bbox).astype(int)
+    if args.gt_bbox != '':
+        gt_bbox = np.loadtxt(args.gt_bbox).astype(int)
 
     # check shape match
     sz_gt = np.array(gt_seg.shape)
@@ -84,7 +92,6 @@ def load_data(args, slices):
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
         """
-
         # alternative: sort by size
         ui,uc = unique_chunk(pred_seg, slices, chunk_size = args.chunk_size)
         uc = uc[ui>0]
@@ -99,7 +106,7 @@ def load_data(args, slices):
     areaRng[-1,1] = 1e10
     areaRng[2:,0] = thres
     areaRng[1:-1,1] = thres
-    return gt_seg, pred_seg, pred_score, areaRng, slices
+    return gt_seg, pred_seg, pred_score, areaRng, slices, gt_bbox, pred_bbox
 
 def main():
     """ 
@@ -133,11 +140,11 @@ def main():
         
     slices = _return_slices()
     
-    gt_seg, pred_seg, pred_score, areaRng, slices = load_data(args, slices)
+    gt_seg, pred_seg, pred_score, areaRng, slices, gt_bbox, pred_bbox = load_data(args, slices)
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size, args.threshold_crumb)
+    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size, args.threshold_crumb, pred_bbox, gt_bbox)
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
