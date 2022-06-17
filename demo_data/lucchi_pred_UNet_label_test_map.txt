@@ -1,0 +1,5 @@
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.638
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.789
+ Average Precision  (AP) @[ IoU=0.75      | area= small | maxDets=100 ] = 0.673
+ Average Precision  (AP) @[ IoU=0.75      | area=medium | maxDets=100 ] = 0.886
+ Average Precision  (AP) @[ IoU=0.75      | area= large | maxDets=100 ] = 0.700

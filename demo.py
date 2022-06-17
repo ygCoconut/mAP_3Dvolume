@@ -29,6 +29,8 @@ def get_args():
                        help='path to a txt or h5 file containing the confidence score for each prediction')
     parser.add_argument('-pb', '--predict-bbox', type = str, default = '',
                        help='path to a txt containing the (seg id, bounding box, volume[optional]) for each prediction')
+    parser.add_argument('-thf', '--threshold-file', type = str, default = '',
+                       help='file to divide ground truth into groups]')
     parser.add_argument('-th', '--threshold', type = str, default = '5e3, 3e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
     parser.add_argument('-thc', '--threshold-crumb', type = int, default = 2000,
@@ -58,8 +60,8 @@ def load_data(args, slices):
     if slices[1] == -1:
         slices[1] = gt_seg.shape[0]
     pred_bbox, gt_bbox = None, None
-    if args.pred_bbox != '':
-        pred_bbox = np.loadtxt(args.pred_bbox).astype(int)
+    if args.predict_bbox != '':
+        pred_bbox = np.loadtxt(args.predict_bbox).astype(int)
     if args.gt_bbox != '':
         gt_bbox = np.loadtxt(args.gt_bbox).astype(int)
 
@@ -99,14 +101,19 @@ def load_data(args, slices):
         pred_score = np.ones([len(ui),2],int)
         pred_score[:,0] = ui
         pred_score[:,1] = uc
+    
+    th_group, areaRng = None, None
+    if args.threshold_file != '': # exist threshold file
+        th_group = np.loadtxt(args.threshold_file).astype(int)
+    else:
+        thres = np.fromstring(args.threshold, sep = ",")
+        areaRng = np.zeros((len(thres)+2,2),int)
+        areaRng[0,1] = 1e10
+        areaRng[-1,1] = 1e10
+        areaRng[2:,0] = thres
+        areaRng[1:-1,1] = thres
 
-    thres = np.fromstring(args.threshold, sep = ",")
-    areaRng = np.zeros((len(thres)+2,2),int)
-    areaRng[0,1] = 1e10
-    areaRng[-1,1] = 1e10
-    areaRng[2:,0] = thres
-    areaRng[1:-1,1] = thres
-    return gt_seg, pred_seg, pred_score, areaRng, slices, gt_bbox, pred_bbox
+    return gt_seg, pred_seg, pred_score, th_group, areaRng, slices, gt_bbox, pred_bbox
 
 def main():
     """ 
@@ -140,11 +147,11 @@ def main():
         
     slices = _return_slices()
     
-    gt_seg, pred_seg, pred_score, areaRng, slices, gt_bbox, pred_bbox = load_data(args, slices)
+    gt_seg, pred_seg, pred_score, th_group, areaRng, slices, gt_bbox, pred_bbox = load_data(args, slices)
     
     ## 2. create complete mapping of ids for gt and pred:
     print('\t2. Compute IoU')
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, areaRng, args.chunk_size, args.threshold_crumb, pred_bbox, gt_bbox)
+    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, th_group, areaRng, args.chunk_size, args.threshold_crumb, pred_bbox, gt_bbox)
     stop_time = int(round(time.time() * 1000))
     print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
 
@@ -158,9 +165,11 @@ def main():
     if args.do_eval > 0:
         print('start evaluation')        
         #Evaluation
+        v3dEval.set_th_group(th_group)
         v3dEval.params.areaRng = areaRng
         v3dEval.accumulate()
         v3dEval.summarize()
         
 if __name__ == '__main__':
+    # python demo.py -gt demo_data/lucchi_gt_test.h5 -p demo_data/lucchi_pred_UNet_label_test.h5 -thf demo_data/lucchi_test_group.txt
     main()

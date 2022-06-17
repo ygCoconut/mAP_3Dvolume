@@ -76,11 +76,13 @@ class VOL3Deval:
             self.scores = np.zeros(self.D)
 
         self.params = Params(iouType=iouType) # parameters
+
         self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious
         self.T = len(self.params.iouThrs)
 
         self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API
-        gid,gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)
+        gid, gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)
+        # remove small crumb 
         gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
         self.gid = gid[gid>0].astype(int)
         self.gic = gic
@@ -88,6 +90,12 @@ class VOL3Deval:
 
         self.eval     = {}                  # accumulated evaluation results
         self.stats = []                     # result summarization
+
+    def set_th_group(self, th_group):
+        if th_group is not None:
+            # need to align with gid
+            th_group = th_group[np.in1d(th_group[:,0], self.gid)]
+        self.params.th_group = th_group
 
     def get_dtm_by_area(self, area_id):
         """
@@ -98,7 +106,14 @@ class VOL3Deval:
         cocoGt = self.cocoGt[:,area_id]
 
         # gtIg: size self.G (include 0)
-        gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
+        if self.params.th_group is None: # area-based
+            gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
+        else: # pre-computed file
+            if area_id == 0: # none instance
+                gtIg = self.gic == 0
+            else:
+                gtIg = self.params.th_group[:,1] != self.params.th_id[area_id-1]
+
         gtIg_id = self.gid[gtIg]
 
         # if no match in the area range, add back best
@@ -108,10 +123,11 @@ class VOL3Deval:
         match_id[match_id==0] = self.cocoGt[match_id==0,0,0]
 
         dtm = match_id*(match_iou>=self.th)
-        # find detection outside the area range
         dtIg = (dtm>0)*np.isin(dtm,gtIg_id).reshape(dtm.shape)
-        a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
-        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
+        if self.params.th_group is None:
+            # find detection outside the area range
+            a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
+            dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
 
         tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
         fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
@@ -133,19 +149,28 @@ class VOL3Deval:
         # allows input customized parameters
         if p is None:
             p = self.params
+
+        _pe = self.params
+        if p.th_group is not None: 
+            # add -1 for all
+            self.params.th_id = np.unique(p.th_group[:,1])
+            a_list = np.hstack([[-1], self.params.th_id])
+            A = len(a_list)
+            A0 = A
+        else: # threshold group
+            # create dictionary for future indexing
+            setA = set(map(tuple, _pe.areaRng))
+            # get inds to evaluate
+            a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
+            A = len(p.areaRng)
+            A0 = len(_pe.areaRng)
+
         T           = len(p.iouThrs)
         R           = len(p.recThrs)
-        A           = len(p.areaRng)
         precision   = -np.ones((T,R,A)) # -1 for the precision of absent categories
         recall      = -np.ones((T,A))
         scores      = -np.ones((T,R,A))
 
-        # create dictionary for future indexing
-        _pe = self.params
-        setA = set(map(tuple, _pe.areaRng))
-        # get inds to evaluate
-        a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
-        A0 = len(_pe.areaRng)
         # retrieve E at each category, area range, and max number of detections
         Nk = A0
         for a, a0 in enumerate(a_list):
@@ -247,12 +272,12 @@ class VOL3Deval:
         def _summarizeDets():
             stats = np.zeros((10,))
             stats[0] = _summarize(1)
-            stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
+            #stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75)#, maxDets=self.params.maxDets[2])
-            stats[3] = _summarize(1, iouThr=.9)#, maxDets=self.params.maxDets[2])
-            #stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            #stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
-            #stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            #stats[3] = _summarize(1, iouThr=.9)#, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, areaRng='small', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, areaRng='medium', iouThr=.75)#, maxDets=self.params.maxDets[2])
+            stats[5] = _summarize(1, areaRng='large', iouThr=.75)#, maxDets=self.params.maxDets[2])
             # no recall
             """
             stats[6] = _summarize(0)#, maxDets=self.params.maxDets[0])
@@ -299,6 +324,7 @@ class Params:
         self.recThrs = 0.01 * np.arange(0,101)
         self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
+        self.th_group = None
 
     def __init__(self, iouType='segm'):
         if iouType == 'segm' or iouType == 'bbox':
