@@ -11,15 +11,34 @@ from tqdm import tqdm
 # 3. instance seg -> bbox
 # 4. instance seg + gt seg + instance score -> sorted match result
 
-def readh5(path, vol=''):
-    # do the first key
-    fid = h5py.File(path, 'r')
-    if vol == '': 
-        if sys.version[0]=='3':
-            vol = list(fid)[0]
-        else: # python 2
-            vol = fid.keys()[0] 
-    return np.array(fid[vol]).squeeze()
+def readh5(filename, datasetname=None):
+    fid = h5py.File(filename,'r')
+
+    if datasetname is None:
+        if sys.version[0]=='2': # py2
+            datasetname = fid.keys()
+        else: # py3
+            datasetname = list(fid)
+    if len(datasetname) == 1:
+        datasetname = datasetname[0]
+    if isinstance(datasetname, (list,)):
+        out=[None]*len(datasetname)
+        for di,d in enumerate(datasetname):
+            out[di] = np.array(fid[d])
+        return out
+    else:
+        return np.array(fid[datasetname])
+
+def writeh5(filename, dtarray, datasetname='main'):
+    fid=h5py.File(filename,'w')
+    if isinstance(datasetname, (list,)):
+        for i,dd in enumerate(datasetname):
+            ds = fid.create_dataset(dd, dtarray[i].shape, compression="gzip", dtype=dtarray[i].dtype)
+            ds[:] = dtarray[i]
+    else:
+        ds = fid.create_dataset(datasetname, dtarray.shape, compression="gzip", dtype=dtarray.dtype)
+        ds[:] = dtarray
+    fid.close()
 
 def readh5_handle(path, vol=''):
     # do the first key
@@ -251,7 +270,7 @@ def seg_iou3d(pred, gt, slices, th_group=None, areaRng=[0,1e10], todo_id=None, c
                 if sum(gid)>0: 
                     idx_iou_max = np.argmax(ious*gid)
                     result_p[j,2+r*3:2+r*3+3] = [ match_id[idx_iou_max], gt_sz_match[idx_iou_max], ious[idx_iou_max] ]            
-            # update set2
+            # update best pred match for each gt
             gt_todo = gt_matched_iou[match_id]<ious            
             gt_matched_iou[match_id[gt_todo]] = ious[gt_todo]
             gt_matched_id[match_id[gt_todo]] = i
@@ -265,6 +284,7 @@ def seg_iou3d(pred, gt, slices, th_group=None, areaRng=[0,1e10], todo_id=None, c
     
     # add back duplicate
     # instead of bookkeeping in the previous step, faster to redo them    
+    # fn_pic can be non-zero: exist a match, but gt is not the best match
     result_fn = np.vstack([fn_pid, fn_pic, fn_gid, fn_gic, fn_iou]).T
     
     return result_p, result_fn
@@ -285,3 +305,35 @@ def seg_iou3d_sorted(pred, gt, score, slices, th_group=None, areaRng = [0,1e10],
     # format: pid,pc,p_score, gid,gc,iou
     pred_score_sorted = relabel[pred_id_sorted].reshape(-1,1)
     return result_p, result_fn, pred_score_sorted
+
+def cable_length(vertices, edges, res = [1,1,1]):
+    # make sure vertices and res have the same order of zyx
+    """
+    Returns cable length of connected skeleton vertices in the same
+    metric that this volume uses (typically nanometers).
+    """
+    if len(edges) == 0:
+        return 0
+    v1 = vertices[edges[:,0]]
+    v2 = vertices[edges[:,1]]
+
+    delta = (v2 - v1) * res
+    delta *= delta
+    dist = np.sum(delta, axis=1)
+    dist = np.sqrt(dist)
+    return np.sum(dist)
+
+def volume_to_cable_length(vol,resolution=[30,8,8],dust_threshold=100):
+    # resolution: zyx order 
+    skels = kimimaro.skeletonize(vol, parallel=0, parallel_chunk_size=100, dust_threshold=dust_threshold)
+    sids = skels.keys()
+    result = np.zeros([len(sids),2])
+    result[:,0] = sids
+    for i,sid in enumerate(sids):
+        ind_skel = skels[sid]
+        vertices = ind_skel.vertices
+
+        # Cable length
+        l = cable_length(ind_skel.vertices, ind_skel.edges, res = resolution)
+        result[i,1] = l
+    return result

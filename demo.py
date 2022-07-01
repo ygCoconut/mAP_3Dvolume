@@ -12,7 +12,7 @@ import numpy as np
 import h5py
 
 from vol3d_eval import VOL3Deval
-from vol3d_util import seg_iou3d_sorted, readh5_handle, readh5, unique_chunk
+from vol3d_util import seg_iou3d_sorted, readh5_handle, readh5, writeh5, unique_chunk
 
 
 ##### 1. I/O
@@ -29,8 +29,12 @@ def get_args():
                        help='path to a txt or h5 file containing the confidence score for each prediction')
     parser.add_argument('-pb', '--predict-bbox', type = str, default = '',
                        help='path to a txt containing the (seg id, bounding box, volume[optional]) for each prediction')
-    parser.add_argument('-thf', '--threshold-file', type = str, default = '',
-                       help='file to divide ground truth into groups]')
+
+    parser.add_argument('-gp', '--group-pred', type = str, default = '',
+                       help='file to divide prediction into groups')
+    parser.add_argument('-gg', '--group-gt', type = str, default = '',
+                       help='file to divide ground truth into groups')
+
     parser.add_argument('-th', '--threshold', type = str, default = '5e3, 3e4',
                        help='get threshold for volume range [possible to have more than 4 ranges, c.f. cocoapi]')
     parser.add_argument('-thc', '--threshold-crumb', type = int, default = 2000,
@@ -47,8 +51,12 @@ def get_args():
                        help='do evaluation')
     parser.add_argument('-sl', '--slices', type = str, default = "-1",
                        help="slices to load, example: -sl '50, 350'")
+    parser.add_argument('-db', '--debug', type = str, default = 'db.h5',
+                       help='do debug')
     
     args = parser.parse_args()
+    if args.output_name=='':
+        args.output_name = args.predict_seg[:args.predict_seg.rfind('.')] 
     
     return args
 
@@ -102,9 +110,10 @@ def load_data(args, slices):
         pred_score[:,0] = ui
         pred_score[:,1] = uc
     
-    th_group, areaRng = None, None
-    if args.threshold_file != '': # exist threshold file
-        th_group = np.loadtxt(args.threshold_file).astype(int)
+    th_group, areaRng = np.zeros(0), np.zeros(0)
+    if args.group_gt != '': # exist gt group file
+        group_gt = np.loadtxt(args.group_gt).astype(int)
+        group_pred = np.loadtxt(args.group_pred).astype(int)
     else:
         thres = np.fromstring(args.threshold, sep = ",")
         areaRng = np.zeros((len(thres)+2,2),int)
@@ -113,7 +122,7 @@ def load_data(args, slices):
         areaRng[2:,0] = thres
         areaRng[1:-1,1] = thres
 
-    return gt_seg, pred_seg, pred_score, th_group, areaRng, slices, gt_bbox, pred_bbox
+    return gt_seg, pred_seg, pred_score, group_gt, group_pred, areaRng, slices, gt_bbox, pred_bbox
 
 def main():
     """ 
@@ -129,35 +138,37 @@ def main():
     print('\t1. Load data')
     args = get_args()
     
-    def _return_slices():
-        # check if args.slices is well defined and return slices array [slice1, sliceN]
-        if args.slices == "-1":
-            slices = [0, -1]
-        else: # load specific slices only
-            try:
-                slices = np.fromstring(args.slices, sep = ",", dtype=int)
-                 #test only 2 boundaries, boundary1<boundary2, and boundaries positive
-                if (slices.shape[0] != 2) or \
-                    slices[0] > slices[1] or \
-                    slices[0] < 0 or slices[1] < 0:
-                    raise ValueError("\nspecify a valid slice range, ex: -sl '50, 350'\n")
-            except:
-                print("\nplease specify a valid slice range, ex: -sl '50, 350'\n")
-        return slices
+    if args.debug != '' and os.path.exists(args.debug):
+        result_p, result_fn, pred_score_sorted, group_gt, group_pred, areaRng = readh5(args.debug, ['p','fn','score','g_gt', 'g_pred','ang'])
+    else:
+        def _return_slices():
+            # check if args.slices is well defined and return slices array [slice1, sliceN]
+            if args.slices == "-1":
+                slices = [0, -1]
+            else: # load specific slices only
+                try:
+                    slices = np.fromstring(args.slices, sep = ",", dtype=int)
+                     #test only 2 boundaries, boundary1<boundary2, and boundaries positive
+                    if (slices.shape[0] != 2) or \
+                        slices[0] > slices[1] or \
+                        slices[0] < 0 or slices[1] < 0:
+                        raise ValueError("\nspecify a valid slice range, ex: -sl '50, 350'\n")
+                except:
+                    print("\nplease specify a valid slice range, ex: -sl '50, 350'\n")
+            return slices
+        slices = _return_slices()
         
-    slices = _return_slices()
-    
-    gt_seg, pred_seg, pred_score, th_group, areaRng, slices, gt_bbox, pred_bbox = load_data(args, slices)
-    
-    ## 2. create complete mapping of ids for gt and pred:
-    print('\t2. Compute IoU')
-    result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, th_group, areaRng, args.chunk_size, args.threshold_crumb, pred_bbox, gt_bbox)
-    stop_time = int(round(time.time() * 1000))
-    print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
+        gt_seg, pred_seg, pred_score, group_gt, group_pred, areaRng, slices, gt_bbox, pred_bbox = load_data(args, slices)
+        
+        ## 2. create complete mapping of ids for gt and pred:
+        print('\t2. Compute IoU')
+        result_p, result_fn, pred_score_sorted = seg_iou3d_sorted(pred_seg, gt_seg, pred_score, slices, group_gt, areaRng, args.chunk_size, args.threshold_crumb, pred_bbox, gt_bbox)
+        stop_time = int(round(time.time() * 1000))
+        print('\t-RUNTIME:\t{} [sec]\n'.format((stop_time-start_time)/1000) )
+        if args.debug != '':
+            writeh5(args.debug, [result_p, result_fn, pred_score_sorted, group_gt, group_pred, areaRng],['p','fn','score','g_gt', 'g_pred', 'ang'])
 
-    ## 3. Evaluation script for 3D instance segmentation
-    if args.output_name=='':
-        args.output_name = args.predict_seg[:args.predict_seg.rfind('.')] 
+        ## 3. Evaluation script for 3D instance segmentation
     v3dEval = VOL3Deval(result_p, result_fn, pred_score_sorted, output_name=args.output_name)
     if args.do_txt > 0:
         v3dEval.save_match_p()
@@ -165,11 +176,11 @@ def main():
     if args.do_eval > 0:
         print('start evaluation')        
         #Evaluation
-        v3dEval.set_th_group(th_group)
+        v3dEval.set_group(group_gt, group_pred)
         v3dEval.params.areaRng = areaRng
         v3dEval.accumulate()
         v3dEval.summarize()
         
 if __name__ == '__main__':
-    # python demo.py -gt demo_data/lucchi_gt_test.h5 -p demo_data/lucchi_pred_UNet_label_test.h5 -thf demo_data/lucchi_test_group.txt
+    # python demo.py -gt /n/boslfs02/LABS/lichtman_lab/donglai/EM30/release/EM30-H-mito-test-v2.h5 -p tmp/0_human_instance_seg_pred.h5 -gg tmp/human_gt_stats_group.txt -gp tmp/pred_group.txt
     main()

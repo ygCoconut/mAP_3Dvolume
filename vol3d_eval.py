@@ -79,25 +79,28 @@ class VOL3Deval:
 
         self.th = self.params.iouThrs.repeat(self.D).reshape((-1,self.D)) #get same length as ious
         self.T = len(self.params.iouThrs)
-
+        
+        # 4: all/small/med/large
+        # 3: id, size, iou
         self.cocoGt = result_p[:,2:].reshape(-1,4,3)    # ground truth COCO API
+        import pdb; pdb.set_trace()
         gid, gix = np.unique(np.hstack([self.result_fn[:,2],self.cocoGt[:,0,0]]), return_index=True)
         # remove small crumb 
-        gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
+        self.gic = np.hstack([self.result_fn[:,3],self.cocoGt[:,0,1]])[gix[gid>0]]
         self.gid = gid[gid>0].astype(int)
-        self.gic = gic
         self.G = len(self.gid)
 
         self.eval     = {}                  # accumulated evaluation results
         self.stats = []                     # result summarization
 
-    def set_th_group(self, th_group):
-        if th_group is not None:
+    def set_group(self, group_gt, group_pred):
+        if group_gt is not None:
             # need to align with gid
-            th_group = th_group[np.in1d(th_group[:,0], self.gid)]
-        self.params.th_group = th_group
+            group_gt = group_gt[np.in1d(group_gt[:,0], self.gid)]
+        self.params.group_gt = group_gt
+        self.params.group_pred = group_pred
 
-    def get_dtm_by_area(self, area_id):
+    def get_dtm_by_area(self, area_id, area_val):
         """
         For each instance, we need the number of true positives, false positives and false negatives
         at each IoU threshold.
@@ -106,13 +109,12 @@ class VOL3Deval:
         cocoGt = self.cocoGt[:,area_id]
 
         # gtIg: size self.G (include 0)
-        if self.params.th_group is None: # area-based
+        if self.params.group_gt is None: # area-based
             gtIg = (self.gic<=self.params.areaRng[area_id,0])+(self.gic>self.params.areaRng[area_id,1])
         else: # pre-computed file
-            if area_id == 0: # none instance
-                gtIg = self.gic == 0
-            else:
-                gtIg = self.params.th_group[:,1] != self.params.th_id[area_id-1]
+            # area_val<0: all False
+            # area_val>=0: selected gt
+            gtIg = np.logical_and(self.params.group_gt[:,1] != area_val, area_val >= 0)
 
         gtIg_id = self.gid[gtIg]
 
@@ -123,11 +125,15 @@ class VOL3Deval:
         match_id[match_id==0] = self.cocoGt[match_id==0,0,0]
 
         dtm = match_id*(match_iou>=self.th)
-        dtIg = (dtm>0)*np.isin(dtm,gtIg_id).reshape(dtm.shape)
-        if self.params.th_group is None:
-            # find detection outside the area range
+        dtIg = (dtm>0)*np.isin(dtm,gtIg_id)
+        if self.params.group_pred is None:
+            # set unmatched detections outside of area range to ignore
             a = (self.cocoDt[:,1]<=self.params.areaRng[area_id,0])+(self.cocoDt[:,1]>self.params.areaRng[area_id,1])
-            dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
+        else:
+            a = np.logical_and(self.params.group_pred[:,1] != area_val, area_val >= 0)
+        
+        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.tile(a,(self.T,1))))
+
 
         tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
         fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
@@ -151,10 +157,9 @@ class VOL3Deval:
             p = self.params
 
         _pe = self.params
-        if p.th_group is not None: 
+        if p.group_gt is not None: 
             # add -1 for all
-            self.params.th_id = np.unique(p.th_group[:,1])
-            a_list = np.hstack([[-1], self.params.th_id])
+            a_list = np.hstack([[-1], np.unique(p.group_gt[:,1])])
             A = len(a_list)
             A0 = A
         else: # threshold group
@@ -174,7 +179,7 @@ class VOL3Deval:
         # retrieve E at each category, area range, and max number of detections
         Nk = A0
         for a, a0 in enumerate(a_list):
-            tps,fps,npig = self.get_dtm_by_area(a)
+            tps,fps,npig = self.get_dtm_by_area(a, a0)
             if npig == 0:
                 continue
 
@@ -212,6 +217,7 @@ class VOL3Deval:
                     pass
                 precision[t,:,a] = np.array(q)
                 scores[t,:,a] = np.array(ss)
+        import pdb; pdb.set_trace()
         self.eval = {
             'params': p,
             'counts': [T, R, A],
@@ -270,6 +276,7 @@ class VOL3Deval:
             return mean_s
 
         def _summarizeDets():
+            import pdb; pdb.set_trace()
             stats = np.zeros((10,))
             stats[0] = _summarize(1)
             #stats[1] = _summarize(1, iouThr=.5)#, maxDets=self.params.maxDets[2])
@@ -324,7 +331,8 @@ class Params:
         self.recThrs = 0.01 * np.arange(0,101)
         self.areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 128 ** 2], [ 128 ** 2, 256 ** 2], [256 ** 2, 1e5 ** 2]]
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
-        self.th_group = None
+        self.group_gt = None
+        self.group_pred = None
 
     def __init__(self, iouType='segm'):
         if iouType == 'segm' or iouType == 'bbox':
