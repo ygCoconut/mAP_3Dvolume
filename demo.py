@@ -183,4 +183,5 @@ def main():
         
 if __name__ == '__main__':
     # python demo.py -gt /n/boslfs02/LABS/lichtman_lab/donglai/EM30/release/EM30-H-mito-test-v2.h5 -p tmp/0_human_instance_seg_pred.h5 -gg tmp/human_gt_stats_group.txt -gp tmp/pred_group.txt
+    # python demo.py -gt /n/boslfs02/LABS/lichtman_lab/donglai/EM30/release/EM30-H-mito-test-v2.h5 -p tmp/ABCS/0_human_instance_seg_pred.h5 -gg tmp/human_gt_stats_group.txt -gp tmp/ABCS/ABCS_pred_threshold_file.txt
     main()
